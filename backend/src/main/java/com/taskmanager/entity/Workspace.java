@@ -5,7 +5,7 @@ import lombok.*;
 import java.time.OffsetDateTime;
 
 @Entity
-@Table(name = "workspaces")
+@Table(name = "khonggianlamviec")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -15,27 +15,28 @@ public class Workspace {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "\"id\"")
     private Long id;
 
-    @Column(name = "user_id", nullable = false)
+    @Column(name = "\"NguoiDungId\"", nullable = false)
     private Long userId;
 
-    @Column(nullable = false, length = 100)
+    @Column(name = "\"TenKhongGian\"", nullable = false, length = 100)
     private String name;
 
-    @Column(name = "icon_name", length = 50)
+    @Column(name = "\"TenBieuTuong\"", length = 50)
     @Builder.Default
     private String iconName = "Briefcase";
 
-    @Column(name = "is_default")
+    @Column(name = "\"MacDinh\"")
     @Builder.Default
     private Boolean isDefault = false;
 
-    @Column(name = "created_at")
+    @Column(name = "\"NgayTao\"")
     @Builder.Default
     private OffsetDateTime createdAt = OffsetDateTime.now();
 
-    @Column(name = "updated_at")
+    @Column(name = "\"NgayCapNhat\"")
     @Builder.Default
     private OffsetDateTime updatedAt = OffsetDateTime.now();
 }

@@ -5,7 +5,7 @@ import lombok.*;
 import java.time.OffsetDateTime;
 
 @Entity
-@Table(name = "categories")
+@Table(name = "danhmuc")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -15,34 +15,35 @@ public class Category {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "\"id\"")
     private Long id;
 
-    @Column(name = "user_id", nullable = false)
+    @Column(name = "\"NguoiDungId\"", nullable = false)
     private Long userId;
 
-    @Column(name = "workspace_id")
+    @Column(name = "\"KhongGianId\"")
     private Long workspaceId;
 
-    @Column(nullable = false, length = 100)
+    @Column(name = "\"TenDanhMuc\"", nullable = false, length = 100)
     private String name;
 
-    @Column(name = "color_code", length = 20)
+    @Column(name = "\"MaMau\"", length = 20)
     @Builder.Default
     private String colorCode = "#4F46E5";
 
-    @Column(name = "icon_name", length = 50)
+    @Column(name = "\"TenBieuTuong\"", length = 50)
     @Builder.Default
     private String iconName = "Folder";
 
-    @Column(name = "is_default")
+    @Column(name = "\"MacDinh\"")
     @Builder.Default
     private Boolean isDefault = false;
 
-    @Column(name = "created_at")
+    @Column(name = "\"NgayTao\"")
     @Builder.Default
     private OffsetDateTime createdAt = OffsetDateTime.now();
 
-    @Column(name = "updated_at")
+    @Column(name = "\"NgayCapNhat\"")
     @Builder.Default
     private OffsetDateTime updatedAt = OffsetDateTime.now();
 }

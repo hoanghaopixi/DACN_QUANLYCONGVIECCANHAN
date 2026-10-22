@@ -5,7 +5,7 @@ import lombok.*;
 import java.time.OffsetDateTime;
 
 @Entity
-@Table(name = "notifications")
+@Table(name = "thongbao")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -15,33 +15,34 @@ public class Notification {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "\"id\"")
     private Long id;
 
-    @Column(name = "user_id", nullable = false)
+    @Column(name = "\"NguoiDungId\"", nullable = false)
     private Long userId;
 
-    @Column(name = "task_id")
+    @Column(name = "\"CongViecId\"")
     private Long taskId;
 
-    @Column(nullable = false, length = 50)
+    @Column(name = "\"LoaiThongBao\"", nullable = false, length = 50)
     @Builder.Default
     private String type = "reminder"; // reminder, ai, alert, success
 
-    @Column(nullable = false, length = 255)
+    @Column(name = "\"TieuDe\"", nullable = false, length = 255)
     private String title;
 
-    @Column(nullable = false, columnDefinition = "TEXT")
+    @Column(name = "\"NoiDung\"", nullable = false, columnDefinition = "TEXT")
     private String message;
 
-    @Column(name = "is_read")
+    @Column(name = "\"DaDoc\"")
     @Builder.Default
     private Boolean isRead = false;
 
-    @Column(name = "created_at")
+    @Column(name = "\"NgayTao\"")
     @Builder.Default
     private OffsetDateTime createdAt = OffsetDateTime.now();
 
-    @Column(name = "updated_at")
+    @Column(name = "\"NgayCapNhat\"")
     @Builder.Default
     private OffsetDateTime updatedAt = OffsetDateTime.now();
 }

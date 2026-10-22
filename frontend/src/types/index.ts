@@ -18,10 +18,13 @@ export interface TimeBlock {
   workspaceId?: number;
   title: string;
   description?: string;
+  note?: string;
   startTime: string;
   endTime: string;
   categoryType: CategoryType;
   status: TaskStatus;
+  priority?: Priority;
+  estimatedDurationMinutes?: number;
   isAutoScheduled: boolean;
 }
 

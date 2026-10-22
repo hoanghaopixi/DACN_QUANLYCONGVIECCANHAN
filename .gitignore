@@ -22,3 +22,6 @@ frontend/dist/
 
 # Logs
 *.log
+
+# Temp partner repo comparison
+temp_partner_repo/

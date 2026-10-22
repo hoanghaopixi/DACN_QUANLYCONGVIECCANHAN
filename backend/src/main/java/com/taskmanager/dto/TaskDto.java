@@ -18,6 +18,7 @@ public class TaskDto {
     private String categoryType;
     private String title;
     private String description;
+    private String note;
     private String priority;
     private String status;
     private OffsetDateTime startTime;

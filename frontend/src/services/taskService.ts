@@ -9,6 +9,7 @@ export interface BackendTaskDto {
   categoryType?: string;
   title: string;
   description?: string;
+  note?: string;
   priority?: string;
   status?: string;
   startTime: string;
@@ -35,6 +36,8 @@ function mapDtoToTimeBlock(dto: BackendTaskDto): TimeBlock & { isRecurring?: boo
     id: dto.id || Date.now(),
     taskId: dto.id,
     title: dto.title,
+    description: dto.description || dto.note,
+    note: dto.note || dto.description,
     startTime: dto.startTime,
     endTime: dto.endTime,
     categoryType: (dto.categoryType as any) || 'WORK',
@@ -42,7 +45,7 @@ function mapDtoToTimeBlock(dto: BackendTaskDto): TimeBlock & { isRecurring?: boo
     isAutoScheduled: !!dto.isAutoScheduled,
     isRecurring: !!dto.isRecurring,
     colorOverride: dto.colorCode,
-    priority: dto.priority,
+    priority: (dto.priority as any),
     workspaceId: dto.workspaceId,
     subtext: dto.subtext || (dto.status === 'COMPLETED' ? '✓ Đã hoàn thành' : dto.status === 'IN_PROGRESS' ? '• Đang làm' : 'Cần làm'),
   };
@@ -60,6 +63,8 @@ export const taskService = {
       title: data.title || '',
       categoryType: data.categoryType || 'WORK',
       categoryId: data.categoryId,
+      description: data.note || data.description,
+      note: data.note || data.description,
       priority: data.priority || 'MEDIUM',
       status: data.status || 'TODO',
       startTime: formatOffsetDateTime(data.startTime || ''),
@@ -76,6 +81,8 @@ export const taskService = {
   async updateTask(id: number, data: Partial<BackendTaskDto>): Promise<TimeBlock & { isRecurring?: boolean; subtext?: string; colorOverride?: string; priority?: string; workspaceId?: number }> {
     const payload: Partial<BackendTaskDto> = {
       ...data,
+      note: data.note !== undefined ? data.note : data.description,
+      description: data.note !== undefined ? data.note : data.description,
       startTime: data.startTime ? formatOffsetDateTime(data.startTime) : undefined,
       endTime: data.endTime ? formatOffsetDateTime(data.endTime) : undefined,
     };

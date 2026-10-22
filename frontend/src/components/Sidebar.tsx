@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Calendar, CheckSquare, Sparkles, Settings, ChevronDown, ChevronsUpDown,
   LogOut, UserCircle, Plus, Pencil, Trash2, Check, X
@@ -47,6 +47,27 @@ export default function Sidebar({
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([]);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
+  const workspaceMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close profile & workspace dropdown when clicking outside
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target as Node)) {
+        setShowProfileMenu(false);
+      }
+      if (workspaceMenuRef.current && !workspaceMenuRef.current.contains(event.target as Node)) {
+        setShowWorkspaceMenu(false);
+        setIsAddingWs(false);
+      }
+    };
+    if (showProfileMenu || showWorkspaceMenu) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+    };
+  }, [showProfileMenu, showWorkspaceMenu]);
 
   const loadWorkspaces = async () => {
     try {
@@ -168,7 +189,7 @@ export default function Sidebar({
       {/* ── Brand Logo ── */}
       <div className="sidebar-logo">
         <div className="logo-icon-svg">
-          {/* Sound wave icon matching Nhịp brand */}
+          {/* Sound wave icon matching SmartTask brand */}
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
             <rect width="24" height="24" rx="7" fill="#6C5CE7" />
             <path d="M7 10V14M10 7V17M14 5V19M17 10V14" stroke="white" strokeWidth="2" strokeLinecap="round" />
@@ -178,18 +199,49 @@ export default function Sidebar({
       </div>
 
       {/* ── Workspace Selector with Add, Edit, Delete ── */}
-      <div style={{ position: 'relative', marginBottom: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+      <div style={{ position: 'relative', marginBottom: 8 }} ref={workspaceMenuRef}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <button
-            className="workspace-selector"
+            type="button"
+            className={`workspace-selector ${showWorkspaceMenu ? 'active' : ''}`}
             title="Chọn không gian làm việc"
             onClick={() => setShowWorkspaceMenu(!showWorkspaceMenu)}
-            style={{ flex: 1, margin: 0 }}
+            style={{
+              flex: 1,
+              margin: 0,
+              height: 36,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '0 12px',
+              borderRadius: 8,
+              border: showWorkspaceMenu ? '1px solid var(--primary)' : '1px solid var(--border)',
+              background: showWorkspaceMenu ? 'var(--primary-bg)' : 'var(--border-light)',
+              cursor: 'pointer',
+              transition: 'all 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
+            }}
           >
-            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <span
+              style={{
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                fontWeight: 600,
+                fontSize: '0.84rem',
+                color: showWorkspaceMenu ? 'var(--primary)' : 'var(--text)',
+              }}
+            >
               {activeWorkspace?.name || 'Không gian cá nhân'}
             </span>
-            <ChevronsUpDown size={15} style={{ color: '#94A3B8', flexShrink: 0 }} />
+            <ChevronsUpDown
+              size={15}
+              style={{
+                color: showWorkspaceMenu ? 'var(--primary)' : '#94A3B8',
+                flexShrink: 0,
+                transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.2s ease',
+                transform: showWorkspaceMenu ? 'rotate(180deg)' : 'none',
+              }}
+            />
           </button>
 
           <button
@@ -201,8 +253,8 @@ export default function Sidebar({
             }}
             title="Thêm không gian làm việc mới"
             style={{
-              width: 32,
-              height: 32,
+              width: 36,
+              height: 36,
               flexShrink: 0,
               borderRadius: 8,
               border: '1px solid var(--border)',
@@ -212,140 +264,121 @@ export default function Sidebar({
               color: 'var(--text-muted)',
               cursor: 'pointer',
               background: 'var(--surface)',
+              transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
             }}
           >
-            <Plus size={15} />
+            <Plus size={16} />
           </button>
         </div>
 
         {/* Workspace Dropdown with Rename & Delete */}
         {showWorkspaceMenu && (
-          <div
-            style={{
-              position: 'absolute',
-              top: 'calc(100% + 4px)',
-              left: 0,
-              right: 0,
-              background: 'var(--surface)',
-              border: '1px solid var(--border)',
-              borderRadius: 12,
-              padding: 6,
-              boxShadow: 'var(--shadow-lg), 0 16px 28px rgba(0,0,0,0.15)',
-              zIndex: 100,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 4,
-            }}
-          >
+          <div className="workspace-dropdown-menu">
             <div
               style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '4px 8px 6px',
-              borderBottom: '1px solid var(--border-light)',
-              fontSize: '0.72rem',
-              fontWeight: 700,
-              color: 'var(--text-muted)',
-              letterSpacing: '0.04em',
-              textTransform: 'uppercase',
-            }}
-          >
-            <span>Không gian làm việc</span>
-            <button
-              type="button"
-              onClick={() => setIsAddingWs(!isAddingWs)}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--primary)',
-                cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 3,
+                justifyContent: 'space-between',
+                padding: '4px 8px 6px',
+                borderBottom: '1px solid var(--border-light)',
                 fontSize: '0.72rem',
-                fontWeight: 600,
+                fontWeight: 700,
+                color: 'var(--text-muted)',
+                letterSpacing: '0.04em',
+                textTransform: 'uppercase',
               }}
             >
-              <Plus size={12} />
-              <span>Thêm</span>
-            </button>
-          </div>
+              <span>Không gian làm việc</span>
+              <button
+                type="button"
+                onClick={() => setIsAddingWs(!isAddingWs)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--primary)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 3,
+                  fontSize: '0.72rem',
+                  fontWeight: 600,
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  transition: 'background 0.15s ease',
+                }}
+              >
+                <Plus size={12} />
+                <span>Thêm</span>
+              </button>
+            </div>
 
-          {/* List of Workspaces */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 180, overflowY: 'auto' }}>
-            {workspaces.map((ws) => {
-              const isSelected = activeWorkspace?.id === ws.id;
-              const isEditing = editingWsId === ws.id;
+            {/* List of Workspaces */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 180, overflowY: 'auto' }}>
+              {workspaces.map((ws) => {
+                const isSelected = activeWorkspace?.id === ws.id;
+                const isEditing = editingWsId === ws.id;
 
-              if (isEditing) {
+                if (isEditing) {
+                  return (
+                    <div
+                      key={ws.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        padding: '4px 6px',
+                        background: 'var(--border-light)',
+                        borderRadius: 6,
+                      }}
+                    >
+                      <input
+                        type="text"
+                        value={editingWsText}
+                        onChange={(e) => setEditingWsText(e.target.value)}
+                        autoFocus
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          fontSize: '0.8rem',
+                          padding: '4px 6px',
+                          border: '1px solid var(--primary)',
+                          borderRadius: 4,
+                          background: 'var(--surface)',
+                          color: 'var(--text)',
+                          outline: 'none',
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleSaveEditWs(ws, e as any);
+                          if (e.key === 'Escape') setEditingWsId(null);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={(e) => handleSaveEditWs(ws, e)}
+                        style={{ color: '#10B981', cursor: 'pointer', padding: '3px 4px', borderRadius: 4 }}
+                        title="Lưu tên (Enter)"
+                      >
+                        <Check size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingWsId(null)}
+                        style={{ color: 'var(--text-muted)', cursor: 'pointer', padding: '3px 4px', borderRadius: 4 }}
+                        title="Hủy (Esc)"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  );
+                }
+
                 return (
                   <div
                     key={ws.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      padding: '4px 6px',
-                      background: 'var(--border-light)',
-                      borderRadius: 6,
-                    }}
-                  >
-                    <input
-                      type="text"
-                      value={editingWsText}
-                      onChange={(e) => setEditingWsText(e.target.value)}
-                      autoFocus
-                      style={{
-                        flex: 1,
-                        fontSize: '0.8rem',
-                        padding: '3px 6px',
-                        border: '1px solid var(--primary)',
-                        borderRadius: 4,
-                        background: 'var(--surface)',
-                        color: 'var(--text)',
-                        outline: 'none',
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={(e) => handleSaveEditWs(ws, e)}
-                      style={{ color: '#10B981', cursor: 'pointer', padding: 2 }}
-                      title="Lưu tên"
-                    >
-                      <Check size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEditingWsId(null)}
-                      style={{ color: 'var(--text-muted)', cursor: 'pointer', padding: 2 }}
-                      title="Hủy"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                );
-              }
-
-              return (
-                <div
-                  key={ws.id}
-                  onClick={() => {
-                    onWorkspaceChange(ws);
-                    setShowWorkspaceMenu(false);
-                  }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '7px 8px',
-                      borderRadius: 6,
-                      fontSize: '0.8rem',
-                      fontWeight: isSelected ? 700 : 500,
-                      color: isSelected ? 'var(--primary)' : 'var(--text)',
-                      background: isSelected ? 'var(--primary-bg)' : 'transparent',
-                      cursor: 'pointer',
-                      transition: 'background 0.15s',
+                    className={`workspace-dropdown-item ${isSelected ? 'selected' : ''}`}
+                    onClick={() => {
+                      onWorkspaceChange(ws);
+                      setShowWorkspaceMenu(false);
                     }}
                   >
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
@@ -416,7 +449,19 @@ export default function Sidebar({
 
             {/* Inline Add Workspace form */}
             {isAddingWs && (
-              <form onSubmit={handleCreateWs} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px' }}>
+              <form
+                onSubmit={handleCreateWs}
+                style={{
+                  marginTop: 4,
+                  padding: '8px',
+                  background: 'var(--border-light)',
+                  borderRadius: 8,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                  animation: 'slideDownSmooth 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                }}
+              >
                 <input
                   type="text"
                   placeholder="Tên không gian mới..."
@@ -424,45 +469,55 @@ export default function Sidebar({
                   onChange={(e) => setNewWsText(e.target.value)}
                   autoFocus
                   style={{
-                    flex: 1,
-                    fontSize: '0.8rem',
-                    padding: '4px 8px',
-                    border: '1px solid var(--border)',
-                    borderRadius: 4,
+                    width: '100%',
+                    fontSize: '0.82rem',
+                    padding: '6px 8px',
+                    border: '1px solid var(--primary)',
+                    borderRadius: 6,
                     background: 'var(--surface)',
                     color: 'var(--text)',
                     outline: 'none',
+                    boxSizing: 'border-box',
                   }}
                 />
-                <button
-                  type="submit"
-                  disabled={!newWsText.trim()}
-                  style={{
-                    background: 'var(--primary)',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: 4,
-                    padding: '4px 8px',
-                    fontSize: '0.75rem',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Thêm
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsAddingWs(false)}
-                  style={{
-                    background: 'none',
-                    color: 'var(--text-muted)',
-                    border: 'none',
-                    cursor: 'pointer',
-                    padding: 2,
-                  }}
-                >
-                  <X size={14} />
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddingWs(false);
+                      setNewWsText('');
+                    }}
+                    style={{
+                      padding: '4px 8px',
+                      fontSize: '0.75rem',
+                      color: 'var(--text-muted)',
+                      background: 'none',
+                      border: 'none',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      fontWeight: 500,
+                    }}
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!newWsText.trim()}
+                    style={{
+                      background: newWsText.trim() ? 'var(--primary)' : '#94A3B8',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 6,
+                      padding: '4px 12px',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      cursor: newWsText.trim() ? 'pointer' : 'not-allowed',
+                      transition: 'background 0.15s ease',
+                    }}
+                  >
+                    Thêm không gian
+                  </button>
+                </div>
               </form>
             )}
           </div>
@@ -581,18 +636,21 @@ export default function Sidebar({
 
       {/* ── Settings Link ── */}
       <button
-        className="nav-item settings-link"
-        onClick={onOpenSettingsModal}
+        className={`nav-item settings-link ${activeNav === 'settings' ? 'active' : ''}`}
+        onClick={() => {
+          onNavChange('settings');
+          onOpenSettingsModal?.();
+        }}
         style={{ cursor: 'pointer' }}
       >
-        <Settings size={18} />
+        <Settings size={18} className="settings-gear-icon" />
         <span>Tài khoản & Thiết lập</span>
       </button>
 
       {/* ── User Profile ── */}
-      <div style={{ position: 'relative' }}>
+      <div ref={profileMenuRef} style={{ position: 'relative' }}>
         <div
-          className="user-profile"
+          className={`user-profile ${showProfileMenu ? 'active' : ''}`}
           onClick={() => setShowProfileMenu(!showProfileMenu)}
           style={{ cursor: 'pointer' }}
           title="Nhấp để xem tài khoản / Đăng xuất"
@@ -607,35 +665,19 @@ export default function Sidebar({
             </span>
           </div>
           <ChevronDown
-            size={15}
+            size={16}
+            className="user-chevron-icon"
             style={{
               marginLeft: 'auto',
               color: '#94A3B8',
-              transform: showProfileMenu ? 'rotate(180deg)' : 'none',
-              transition: 'transform 0.2s',
+              transform: showProfileMenu ? 'rotate(180deg)' : 'rotate(0deg)',
             }}
           />
         </div>
 
         {/* Dropdown menu */}
         {showProfileMenu && (
-          <div
-            style={{
-              position: 'absolute',
-              bottom: 'calc(100% + 8px)',
-              left: 0,
-              right: 0,
-              background: 'var(--surface)',
-              border: '1px solid var(--border)',
-              borderRadius: 12,
-              padding: 6,
-              boxShadow: 'var(--shadow-lg)',
-              zIndex: 100,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 2,
-            }}
-          >
+          <div className="profile-dropdown-menu">
             {currentUser && (
               <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--border-light)', fontSize: '0.75rem', color: 'var(--text-3)' }}>
                 <div style={{ fontWeight: 600, color: 'var(--text)' }}>{currentUser.fullName}</div>
@@ -645,21 +687,21 @@ export default function Sidebar({
             <button
               onClick={() => {
                 setShowProfileMenu(false);
-                onOpenAuthModal();
-              }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '8px 10px',
-                borderRadius: 8,
-                fontSize: '0.82rem',
-                color: 'var(--text)',
-                textAlign: 'left',
+                onNavChange('settings');
               }}
               className="dropdown-item"
             >
-              <UserCircle size={15} style={{ color: 'var(--primary)' }} />
+              <Settings size={16} style={{ color: 'var(--primary)' }} />
+              <span>Tài khoản & Thiết lập</span>
+            </button>
+            <button
+              onClick={() => {
+                setShowProfileMenu(false);
+                onOpenAuthModal();
+              }}
+              className="dropdown-item"
+            >
+              <UserCircle size={16} style={{ color: 'var(--primary)' }} />
               <span>{currentUser ? 'Chuyển tài khoản' : 'Đăng nhập / Đăng ký'}</span>
             </button>
             {currentUser && (
@@ -668,19 +710,9 @@ export default function Sidebar({
                   setShowProfileMenu(false);
                   onLogout();
                 }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '8px 10px',
-                  borderRadius: 8,
-                  fontSize: '0.82rem',
-                  color: '#DC2626',
-                  textAlign: 'left',
-                }}
-                className="dropdown-item"
+                className="dropdown-item danger-item"
               >
-                <LogOut size={15} />
+                <LogOut size={16} />
                 <span>Đăng xuất</span>
               </button>
             )}

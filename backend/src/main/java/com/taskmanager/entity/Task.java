@@ -5,7 +5,7 @@ import lombok.*;
 import java.time.OffsetDateTime;
 
 @Entity
-@Table(name = "tasks")
+@Table(name = "congviec")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -15,74 +15,78 @@ public class Task {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "\"id\"")
     private Long id;
 
-    @Column(name = "user_id", nullable = false)
+    @Column(name = "\"NguoiDungId\"", nullable = false)
     private Long userId;
 
-    @Column(name = "workspace_id")
+    @Column(name = "\"KhongGianId\"")
     private Long workspaceId;
 
-    @Column(name = "category_id")
+    @Column(name = "\"DanhMucId\"")
     private Long categoryId;
 
-    @Column(nullable = false, length = 255)
+    @Column(name = "\"TieuDe\"", nullable = false, length = 255)
     private String title;
 
-    @Column(columnDefinition = "TEXT")
+    @Column(name = "\"MoTa\"", columnDefinition = "TEXT")
     private String description;
 
-    @Column(length = 20)
+    @Column(name = "\"GhiChu\"", columnDefinition = "TEXT")
+    private String note;
+
+    @Column(name = "\"MucDoUuTien\"", length = 20)
     @Builder.Default
     private String priority = "MEDIUM"; // LOW, MEDIUM, HIGH, URGENT
 
-    @Column(name = "eisenhower_quadrant", length = 20)
+    @Column(name = "\"GocPhanTu\"", length = 20)
     @Builder.Default
     private String eisenhowerQuadrant = "SCHEDULE"; // DO_FIRST, SCHEDULE, DELEGATE, DONT_DO
 
-    @Column(length = 20)
+    @Column(name = "\"TrangThai\"", length = 20)
     @Builder.Default
     private String status = "TODO"; // TODO, IN_PROGRESS, COMPLETED, CANCELLED, OVERDUE
 
-    @Column(name = "due_date")
+    @Column(name = "\"HanChot\"")
     private OffsetDateTime dueDate;
 
-    @Column(name = "estimated_duration_minutes")
+    @Column(name = "\"ThoiLuongUocTinh\"")
     @Builder.Default
     private Integer estimatedDurationMinutes = 60;
 
-    @Column(name = "actual_duration_minutes")
+    @Column(name = "\"ThoiLuongThucTe\"")
     @Builder.Default
     private Integer actualDurationMinutes = 0;
 
-    @Column(name = "is_fixed_time")
+    @Column(name = "\"LichCoDinh\"")
     @Builder.Default
     private Boolean isFixedTime = false;
 
-    @Column(name = "fixed_start_time")
+    @Column(name = "\"BatDauCoDinh\"")
     private OffsetDateTime fixedStartTime;
 
-    @Column(name = "fixed_end_time")
+    @Column(name = "\"KetThucCoDinh\"")
     private OffsetDateTime fixedEndTime;
 
-    @Column(name = "is_recurring")
+    @Column(name = "\"LapLai\"")
     @Builder.Default
     private Boolean isRecurring = false;
 
-    @Column(name = "recurrence_rule", length = 100)
+    @Column(name = "\"QuyTacLapLai\"", length = 100)
     private String recurrenceRule;
 
-    @Column(name = "parent_task_id")
+    @Column(name = "\"CongViecChaId\"")
     private Long parentTaskId;
 
-    @Column(name = "completed_at")
+    @Column(name = "\"HoanThanhLuc\"")
     private OffsetDateTime completedAt;
 
-    @Column(name = "created_at")
+    @Column(name = "\"NgayTao\"")
     @Builder.Default
     private OffsetDateTime createdAt = OffsetDateTime.now();
 
-    @Column(name = "updated_at")
+    @Column(name = "\"NgayCapNhat\"")
     @Builder.Default
     private OffsetDateTime updatedAt = OffsetDateTime.now();
 }
