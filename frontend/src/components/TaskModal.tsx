@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { X, Trash2, AlertTriangle } from 'lucide-react';
+import { X, Trash2, AlertTriangle, Clock } from 'lucide-react';
 import { Category, Priority, TaskStatus } from '../types';
+import { checkWorkHoursConstraint, WorkHoursValidationResult } from '../utils/workHoursConstraint';
 
 interface TaskModalProps {
   isOpen: boolean;
@@ -20,18 +21,26 @@ export default function TaskModal({
   initialData,
 }: TaskModalProps) {
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [offHoursWarning, setOffHoursWarning] = useState<WorkHoursValidationResult | null>(null);
   const [title, setTitle] = useState('');
   const [categoryType, setCategoryType] = useState('WORK');
-  const [date, setDate] = useState('2026-10-13');
+  const getTodayStr = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  const [date, setDate] = useState(getTodayStr());
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('10:00');
   const [priority, setPriority] = useState<Priority>('MEDIUM');
   const [status, setStatus] = useState<TaskStatus>('TODO');
   const [isRecurring, setIsRecurring] = useState(false);
+  const [note, setNote] = useState('');
 
   useEffect(() => {
     if (initialData) {
       setTitle(initialData.title || '');
+      setNote(initialData.note || initialData.description || '');
       setCategoryType(initialData.categoryType || 'WORK');
       if (initialData.startTime) {
         const d = new Date(initialData.startTime);
@@ -54,8 +63,9 @@ export default function TaskModal({
       if (initialData.isRecurring !== undefined) setIsRecurring(initialData.isRecurring);
     } else {
       setTitle('');
+      setNote('');
       setCategoryType('WORK');
-      setDate('2026-10-13');
+      setDate(getTodayStr());
       setStartTime('09:00');
       setEndTime('10:00');
       setPriority('MEDIUM');
@@ -63,22 +73,22 @@ export default function TaskModal({
       setIsRecurring(false);
     }
     setIsConfirmingDelete(false);
+    setOffHoursWarning(null);
   }, [initialData, isOpen]);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim()) return;
-
+  const doSaveTask = () => {
     const fullStartTime = `${date}T${startTime}:00+07:00`;
     const fullEndTime = `${date}T${endTime}:00+07:00`;
 
     const selectedCat = categories.find((c) => c.type === categoryType) || (categories.length > 0 ? categories[0] : null);
 
     onSave({
-      ...(initialData?.id ? { id: initialData.id } : {}),
+      ...(initialData?.id ? { id: initialData.id } : initialData?.taskId ? { id: initialData.taskId } : {}),
       title: title.trim(),
+      note: note.trim(),
+      description: note.trim(),
       categoryId: selectedCat ? selectedCat.id : null,
       categoryType: selectedCat?.type || categoryType || 'WORK',
       startTime: fullStartTime,
@@ -87,35 +97,34 @@ export default function TaskModal({
       status,
       isRecurring,
     });
+    setOffHoursWarning(null);
     onClose();
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+
+    const fullStartTime = `${date}T${startTime}:00+07:00`;
+    const fullEndTime = `${date}T${endTime}:00+07:00`;
+
+    // Kiểm tra ràng buộc ngoài giờ nghỉ & quá thời gian kết thúc
+    const validation = checkWorkHoursConstraint(fullStartTime, fullEndTime, categoryType);
+    if (validation.isOutsideWorkHours) {
+      setOffHoursWarning(validation);
+      return;
+    }
+
+    doSaveTask();
   };
 
   return (
     <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'rgba(15, 23, 42, 0.45)',
-        backdropFilter: 'blur(3px)',
-        zIndex: 9999,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 20,
-      }}
+      className="modal-backdrop-animated"
       onClick={onClose}
     >
       <div
-        style={{
-          background: '#FFFFFF',
-          borderRadius: 16,
-          width: '100%',
-          maxWidth: 480,
-          boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)',
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
+        className="modal-card-animated"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -217,6 +226,88 @@ export default function TaskModal({
               >
                 <Trash2 size={14} />
                 <span>Xác nhận xóa</span>
+              </button>
+            </div>
+          </div>
+        ) : offHoursWarning ? (
+          <div style={{ padding: 22 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 16 }}>
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 12,
+                  background: 'rgba(234, 88, 12, 0.12)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#EA580C',
+                  flexShrink: 0,
+                }}
+              >
+                <AlertTriangle size={24} />
+              </div>
+              <div>
+                <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: '#0F172A' }}>
+                  Xác nhận ngoài giờ nghỉ
+                </h4>
+                <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: '#64748B', lineHeight: 1.5 }}>
+                  {offHoursWarning.reason}
+                </p>
+              </div>
+            </div>
+
+            <div
+              style={{
+                padding: '14px 16px',
+                background: '#FFF7ED',
+                border: '1.5px solid #FDBA74',
+                borderRadius: 10,
+                color: '#C2410C',
+                fontSize: '0.92rem',
+                fontWeight: 600,
+                marginBottom: 20,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+              }}
+            >
+              <Clock size={18} style={{ flexShrink: 0 }} />
+              <span>{offHoursWarning.promptMessage}</span>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 14, borderTop: '1px solid #E2E8F0' }}>
+              <button
+                type="button"
+                onClick={() => setOffHoursWarning(null)}
+                style={{
+                  padding: '9px 16px',
+                  borderRadius: 8,
+                  border: '1px solid #CBD5E1',
+                  background: '#FFFFFF',
+                  color: '#64748B',
+                  fontSize: '0.85rem',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                }}
+              >
+                Quay lại chỉnh sửa
+              </button>
+              <button
+                type="button"
+                onClick={doSaveTask}
+                style={{
+                  padding: '9px 18px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: '#EA580C',
+                  color: '#fff',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Đồng ý tạo ngoài giờ
               </button>
             </div>
           </div>
@@ -383,6 +474,30 @@ export default function TaskModal({
                 <option value="COMPLETED">Đã hoàn thành</option>
               </select>
             </div>
+          </div>
+
+          {/* Ghi chú / Chú thích */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+              Ghi chú / Chú thích
+            </label>
+            <textarea
+              rows={2}
+              placeholder="Thêm ghi chú, địa điểm, chi tiết công việc..."
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                border: '1px solid #CBD5E1',
+                borderRadius: 8,
+                fontSize: '0.85rem',
+                outline: 'none',
+                resize: 'vertical',
+                fontFamily: 'inherit',
+                boxSizing: 'border-box',
+              }}
+            />
           </div>
 
           {/* Recurring */}

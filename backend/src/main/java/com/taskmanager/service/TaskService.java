@@ -82,6 +82,12 @@ public class TaskService {
 
             String colorCode = (b != null && b.getColorCode() != null) ? b.getColorCode() : (c != null ? c.getColorCode() : "#6C5CE7");
 
+            String effectiveNote = (t.getNote() != null && !t.getNote().trim().isEmpty())
+                    ? t.getNote().trim()
+                    : (b != null && b.getNote() != null && !b.getNote().trim().isEmpty())
+                    ? b.getNote().trim()
+                    : t.getDescription();
+
             dtos.add(TaskDto.builder()
                     .id(t.getId())
                     .userId(t.getUserId())
@@ -89,7 +95,8 @@ public class TaskService {
                     .categoryId(t.getCategoryId())
                     .categoryType(categoryType)
                     .title(t.getTitle())
-                    .description(t.getDescription())
+                    .description(effectiveNote)
+                    .note(effectiveNote)
                     .priority(t.getPriority())
                     .status(t.getStatus())
                     .startTime(start)
@@ -128,12 +135,17 @@ public class TaskService {
             }
         }
 
+        String taskNote = dto.getNote() != null && !dto.getNote().trim().isEmpty()
+                ? dto.getNote().trim()
+                : dto.getDescription();
+
         Task task = Task.builder()
                 .userId(userId)
                 .workspaceId(workspaceId)
                 .categoryId(categoryId)
                 .title(dto.getTitle())
-                .description(dto.getDescription())
+                .description(taskNote)
+                .note(taskNote)
                 .priority(dto.getPriority() != null ? dto.getPriority() : "MEDIUM")
                 .status(dto.getStatus() != null ? dto.getStatus() : "TODO")
                 .isRecurring(Boolean.TRUE.equals(dto.getIsRecurring()))
@@ -153,6 +165,7 @@ public class TaskService {
                 .endTime(end)
                 .colorCode(dto.getColorCode() != null ? dto.getColorCode() : "#6C5CE7")
                 .isAutoScheduled(Boolean.TRUE.equals(dto.getIsAutoScheduled()))
+                .note(taskNote)
                 .build();
 
         timeBlockRepository.save(block);
@@ -160,6 +173,8 @@ public class TaskService {
         dto.setId(savedTask.getId());
         dto.setUserId(userId);
         dto.setWorkspaceId(workspaceId);
+        dto.setNote(taskNote);
+        dto.setDescription(taskNote);
         return dto;
     }
 
@@ -171,8 +186,12 @@ public class TaskService {
         if (dto.getTitle() != null && !dto.getTitle().trim().isEmpty()) {
             task.setTitle(dto.getTitle().trim());
         }
-        if (dto.getDescription() != null) {
-            task.setDescription(dto.getDescription());
+        if (dto.getNote() != null) {
+            task.setNote(dto.getNote().trim());
+            task.setDescription(dto.getNote().trim());
+        } else if (dto.getDescription() != null) {
+            task.setNote(dto.getDescription().trim());
+            task.setDescription(dto.getDescription().trim());
         }
         if (dto.getPriority() != null) {
             task.setPriority(dto.getPriority());
@@ -219,6 +238,11 @@ public class TaskService {
                 if (dto.getStartTime() != null) b.setStartTime(dto.getStartTime());
                 if (dto.getEndTime() != null) b.setEndTime(dto.getEndTime());
                 if (dto.getColorCode() != null) b.setColorCode(dto.getColorCode());
+                if (dto.getNote() != null) {
+                    b.setNote(dto.getNote().trim());
+                } else if (dto.getDescription() != null) {
+                    b.setNote(dto.getDescription().trim());
+                }
                 timeBlockRepository.save(b);
                 foundBlock = true;
                 break;
@@ -237,6 +261,7 @@ public class TaskService {
                     .endTime(end)
                     .colorCode(dto.getColorCode() != null ? dto.getColorCode() : "#6C5CE7")
                     .isAutoScheduled(false)
+                    .note(updatedTask.getNote())
                     .build();
             timeBlockRepository.save(newBlock);
         }
@@ -249,6 +274,7 @@ public class TaskService {
                 .categoryType(dto.getCategoryType())
                 .title(updatedTask.getTitle())
                 .description(updatedTask.getDescription())
+                .note(updatedTask.getNote())
                 .priority(updatedTask.getPriority())
                 .status(updatedTask.getStatus())
                 .startTime(dto.getStartTime())
@@ -265,19 +291,41 @@ public class TaskService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> getStats(Long userId, Long workspaceId) {
-        long totalTasks = (workspaceId != null)
-                ? taskRepository.countByUserIdAndWorkspaceId(userId, workspaceId)
-                : taskRepository.countByUserId(userId);
-        long completedTasks = (workspaceId != null)
-                ? taskRepository.countByUserIdAndWorkspaceIdAndStatus(userId, workspaceId, "COMPLETED")
-                : taskRepository.countByUserIdAndStatus(userId, "COMPLETED");
+        java.time.ZoneId zone = java.time.ZoneId.of("Asia/Ho_Chi_Minh");
+        java.time.OffsetDateTime now = java.time.OffsetDateTime.now(zone);
+        java.time.DayOfWeek currentDow = now.getDayOfWeek();
+        java.time.OffsetDateTime monday = now.minusDays(currentDow.getValue() - 1)
+                .withHour(0).withMinute(0).withSecond(0).withNano(0);
+        java.time.OffsetDateTime sunday = monday.plusDays(7).minusNanos(1);
+
+        List<TimeBlock> blocksInWeek = timeBlockRepository.findByUserIdAndStartTimeBetween(userId, monday, sunday);
+
+        long totalTasksThisWeek = blocksInWeek.size();
+        long completedTasks = 0;
+        double totalDurationMinutes = 0;
+
+        for (TimeBlock b : blocksInWeek) {
+            if (b.getTaskId() != null) {
+                Task t = taskRepository.findById(b.getTaskId()).orElse(null);
+                if (t != null && "COMPLETED".equalsIgnoreCase(t.getStatus())) {
+                    completedTasks++;
+                }
+            }
+            if (b.getStartTime() != null && b.getEndTime() != null) {
+                long dur = java.time.Duration.between(b.getStartTime(), b.getEndTime()).toMinutes();
+                totalDurationMinutes += Math.max(dur, 0);
+            }
+        }
+
+        double focusHours = Math.round((totalDurationMinutes / 60.0) * 10.0) / 10.0;
+        long freeSlots = Math.max(63 - totalTasksThisWeek, 0);
 
         Map<String, Object> map = new HashMap<>();
-        map.put("totalTasksThisWeek", totalTasks);
+        map.put("totalTasksThisWeek", totalTasksThisWeek);
         map.put("completedTasks", completedTasks);
-        map.put("focusHours", totalTasks > 0 ? 13 : 0);
-        map.put("focusLabel", totalTasks > 0 ? "Học tập & Công việc" : "Không có nhiệm vụ");
-        map.put("freeSlots", 8);
+        map.put("focusHours", focusHours);
+        map.put("focusLabel", totalTasksThisWeek > 0 ? "Học tập & Công việc" : "Chưa có lịch tuần này");
+        map.put("freeSlots", freeSlots);
         return map;
     }
 }

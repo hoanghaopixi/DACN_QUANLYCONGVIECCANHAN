@@ -7,7 +7,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 @Entity
-@Table(name = "users")
+@Table(name = "nguoidung")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -17,48 +17,49 @@ public class User {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "\"id\"")
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 120)
+    @Column(name = "\"Email\"", nullable = false, unique = true, length = 120)
     private String email;
 
-    @Column(name = "password_hash", nullable = false)
+    @Column(name = "\"MatKhau\"", nullable = false)
     private String passwordHash;
 
-    @Column(name = "full_name", nullable = false, length = 100)
+    @Column(name = "\"HoVaTen\"", nullable = false, length = 100)
     private String fullName;
 
-    @Column(name = "phone_number", length = 20)
+    @Column(name = "\"SoDienThoai\"", length = 20)
     private String phoneNumber;
 
-    @Column(name = "avatar_url", length = 500)
+    @Column(name = "\"AnhDaiDien\"", length = 500)
     private String avatarUrl;
 
-    @Column(name = "auth_provider", length = 20)
+    @Column(name = "\"NguonXacThuc\"", length = 20)
     @Builder.Default
     private String authProvider = "LOCAL";
 
-    @Column(name = "is_active")
+    @Column(name = "\"KichHoat\"")
     @Builder.Default
     private Boolean isActive = true;
 
-    @Column(name = "is_email_verified")
+    @Column(name = "\"XacThucEmail\"")
     @Builder.Default
     private Boolean isEmailVerified = false;
 
-    @Column(name = "created_at")
+    @Column(name = "\"NgayTao\"")
     @Builder.Default
     private OffsetDateTime createdAt = OffsetDateTime.now();
 
-    @Column(name = "updated_at")
+    @Column(name = "\"NgayCapNhat\"")
     @Builder.Default
     private OffsetDateTime updatedAt = OffsetDateTime.now();
 
     @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(
-        name = "user_roles",
-        joinColumns = @JoinColumn(name = "user_id"),
-        inverseJoinColumns = @JoinColumn(name = "role_id")
+        name = "vaitronguoidung",
+        joinColumns = @JoinColumn(name = "\"NguoiDungId\""),
+        inverseJoinColumns = @JoinColumn(name = "\"VaiTroId\"")
     )
     @Builder.Default
     private Set<Role> roles = new HashSet<>();

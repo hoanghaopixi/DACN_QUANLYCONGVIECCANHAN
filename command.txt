@@ -21,3 +21,82 @@ markitdown path-to-file.pdf -o document.md
 npm init -y
 npm install react react-dom
 npm install -D typescript vite @vitejs/plugin-react @types/react @types/react-dom
+
+
+
+
+===========================
+// lệnh GitHub
+===========================
+git checkout ten-branch
+# Chuyển sang đúng branch cần làm việc (ví dụ: dev)
+
+git fetch origin
+# Chỉ tải về thông tin code mới nhất trên remote (GitHub/GitLab...),
+# CHƯA gộp vào code hiện tại -> dùng để kiểm tra trước, an toàn
+
+git pull origin ten-branch
+# Lấy code mới nhất từ remote VÀ gộp (merge) luôn vào code local
+# Nếu có người khác sửa trùng chỗ mình đang sửa -> sẽ báo conflict ở đây
+
+# -> Mở file bị conflict, tìm đoạn <<<<<<< ======= >>>>>>>, sửa tay cho đúng
+# -> sau đó git add . và git commit để hoàn tất
+
+# ... code tiếp ...
+# -> Đây là lúc bạn sửa code, thêm tính năng, fix bug...
+
+git add .
+# Gom tất cả file đã thay đổi vào "staging area"
+# (khu vực tạm, chuẩn bị để commit — chưa lưu chính thức)
+
+git commit -m "mô tả thay đổi"
+# Lưu chính thức các thay đổi vào lịch sử local (chưa đẩy lên remote)
+# "mô tả thay đổi" nên viết rõ ràng, ví dụ: "fix lỗi đăng nhập sai mật khẩu"
+
+git push origin ten-branch
+# Đẩy các commit vừa lưu lên remote (GitHub/GitLab)
+# để người khác (hoặc chủ repo) thấy được thay đổi của mình
+
+
+
+
+
+
+
+
+
+
+
+================================
+Q: khi nhánh branch tương ứng hoàn thiện code được  chức năng gì đó thì mới merge vào nhánh main đúng khum
+================================
+Đúng rồi. Đây là ý tưởng chuẩn (gọi là branching workflow):
+
+main = code ổn định, chạy được, luôn ở trạng thái sẵn sàng dùng/deploy.
+Mỗi tính năng/sửa lỗi → tạo 1 branch riêng (ví dụ feature/dang-nhap, fix/loi-thanh-toan).
+Code, test trên branch đó thoải mái, có bug/dở dang cũng không ảnh hưởng gì đến main.
+Khi tính năng đó hoàn thiện, test ổn → mới merge vào main (thường qua Pull Request để review trước).
+=========================
+Lệnh merge cơ bản (nếu merge trực tiếp, không qua PR):
+
+git checkout main
+git pull origin main          # đảm bảo main đang mới nhất trước khi merge
+git merge feature/dang-nhap   # gộp branch đã xong vào main
+git push origin main
+
+Thực tế hay làm hơn (qua Pull Request trên GitHub/GitLab):
+
+Push branch feature/dang-nhap lên remote.
+Vào GitHub/GitLab tạo Pull Request từ feature/dang-nhap → main.
+Review code (tự review hoặc người khác review).
+Bấm Merge trên giao diện web → code được gộp vào main.
+
+Lợi ích của cách này:
+main không bao giờ bị dính code lỗi, dở dang.
+Nếu tính năng có vấn đề, dễ revert/xóa branch mà không ảnh hưởng chỗ khác.
+Nhiều người/nhiều AI làm nhiều tính năng song song mà không đụng nhau liên tục.
+
+Sau khi merge xong, thường thì branch feature đó có thể xóa đi (vì nhiệm vụ đã hoàn thành):
+
+git branch -d feature/dang-nhap        # xóa branch local
+git push origin --delete feature/dang-nhap   # xóa branch trên remote

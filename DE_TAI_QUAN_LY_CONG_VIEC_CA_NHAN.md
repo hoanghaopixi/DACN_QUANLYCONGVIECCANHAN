@@ -147,226 +147,270 @@ erDiagram
     USERS ||--o{ USER_ROLES : has
     ROLES ||--o{ USER_ROLES : assigned_to
     USERS ||--|| USER_PREFERENCES : configures
-    USERS ||--o{ CATEGORIES : owns
-    USERS ||--o{ TAGS : creates
-    USERS ||--o{ TASKS : manages
-    USERS ||--o{ TIME_BLOCKS : schedules
-    USERS ||--o{ POMODORO_SESSIONS : executes
-    USERS ||--o{ REMINDERS : receives
-    USERS ||--o{ AI_SCHEDULING_LOGS : triggers
-    USERS ||--o{ PRODUCTIVITY_LOGS : records
+    nguoidung ||--|| caidatnguoidung : "cau_hinh"
+    nguoidung ||--o{ khonggianlamviec : "so_huu"
+    khonggianlamviec ||--o{ danhmuc : "chua"
+    nguoidung ||--o{ danhmuc : "quan_ly"
+    nguoidung ||--o{ the : "tao"
+    nguoidung ||--o{ congviec : "thuc_hien"
+    khonggianlamviec ||--o{ congviec : "thuoc"
+    danhmuc ||--o{ congviec : "phan_loai"
+    nguoidung ||--o{ khoithoigian : "so_huu_lich"
+    congviec ||--o{ khoithoigian : "xep_lich"
+    congviec ||--o{ congvieccon : "chia_nho"
+    congviec ||--o{ congviecthe : "gan_the"
+    the ||--o{ congviecthe : "ap_dung"
+    congviec ||--o{ phientaptrung : "theo_doi"
+    congviec ||--o{ nhacnho : "nhac_nho"
+    nguoidung ||--o{ thongbao : "nhan_thong_bao"
+    nguoidung ||--o{ nhatkyai : "tuong_tac"
+    nguoidung ||--o{ nhatkynangsuat : "tong_hop"
 
-    CATEGORIES ||--o{ TASKS : classifies
-    TASKS ||--o{ SUBTASKS : contains
-    TASKS ||--o{ TASK_TAGS : tagged_with
-    TAGS ||--o{ TASK_TAGS : associates
-    TASKS ||--o{ TIME_BLOCKS : allocates_to
-    TASKS ||--o{ POMODORO_SESSIONS : tracked_by
-    TASKS ||--o{ REMINDERS : triggers
-    TASKS ||--o{ TASKS : parent_of
-
-    USERS {
+    nguoidung {
         bigserial id PK
-        varchar email UK
-        varchar password_hash
-        varchar full_name
-        varchar avatar_url
-        varchar auth_provider
-        boolean is_active
-        timestamptz created_at
+        varchar Email UK
+        varchar MatKhau
+        varchar HoVaTen
+        varchar SoDienThoai
+        varchar AnhDaiDien
+        varchar NguonXacThuc
+        boolean KichHoat
+        timestamptz NgayTao
     }
 
-    USER_PREFERENCES {
+    caidatnguoidung {
         bigserial id PK
-        bigint user_id FK, UK
-        time work_start_time
-        time work_end_time
-        varchar working_days
-        int buffer_time_minutes
-        varchar peak_productivity_time
-        int default_pomodoro_minutes
-        boolean auto_reschedule_enabled
-        varchar timezone
+        bigint NguoiDungId FK, UK
+        time GioBatDauLamViec
+        time GioKetThucLamViec
+        varchar NgayLamViec
+        int ThoiGianDemPhut
+        varchar ThoiGianHieuSuatCao
+        int ThoiGianPomodoroMacDinh
+        boolean TuDongDoiLich
+        varchar MuiGio
     }
 
-    CATEGORIES {
+    khonggianlamviec {
         bigserial id PK
-        bigint user_id FK
-        varchar name
-        varchar color_code
-        varchar icon_name
-        boolean is_default
+        bigint NguoiDungId FK
+        varchar TenKhongGian
+        varchar TenBieuTuong
+        boolean MacDinh
     }
 
-    TASKS {
+    danhmuc {
         bigserial id PK
-        bigint user_id FK
-        bigint category_id FK
-        varchar title
-        text description
-        varchar priority
-        varchar eisenhower_quadrant
-        varchar status
-        timestamptz due_date
-        int estimated_duration_minutes
-        int actual_duration_minutes
-        boolean is_fixed_time
-        timestamptz fixed_start_time
-        timestamptz fixed_end_time
-        boolean is_recurring
-        varchar recurrence_rule
-        bigint parent_task_id FK
+        bigint NguoiDungId FK
+        bigint KhongGianId FK
+        varchar TenDanhMuc
+        varchar MaMau
+        varchar TenBieuTuong
+        boolean MacDinh
     }
 
-    SUBTASKS {
+    congviec {
         bigserial id PK
-        bigint task_id FK
-        varchar title
-        boolean is_completed
-        int sort_order
+        bigint NguoiDungId FK
+        bigint KhongGianId FK
+        bigint DanhMucId FK
+        varchar TieuDe
+        text MoTa
+        varchar MucDoUuTien
+        varchar GocPhanTu
+        varchar TrangThai
+        timestamptz HanChot
+        int ThoiLuongUocTinh
+        int ThoiLuongThucTe
+        boolean LichCoDinh
+        timestamptz BatDauCoDinh
+        timestamptz KetThucCoDinh
+        boolean LapLai
+        varchar QuyTacLapLai
+        bigint CongViecChaId FK
     }
 
-    TIME_BLOCKS {
+    congvieccon {
         bigserial id PK
-        bigint user_id FK
-        bigint task_id FK
-        varchar title
-        timestamptz start_time
-        timestamptz end_time
-        boolean is_auto_scheduled
-        varchar status
+        bigint CongViecId FK
+        varchar TieuDe
+        boolean HoanThanh
+        int ThoiLuongPhut
+        int ThuTu
     }
 
-    POMODORO_SESSIONS {
+    khoithoigian {
         bigserial id PK
-        bigint user_id FK
-        bigint task_id FK
-        timestamptz start_time
-        timestamptz end_time
-        int duration_minutes
-        varchar session_type
-        boolean is_completed
+        bigint NguoiDungId FK
+        bigint CongViecId FK
+        varchar TieuDe
+        timestamptz ThoiGianBatDau
+        timestamptz ThoiGianKetThuc
+        boolean TuDongXepLich
+        varchar TrangThai
+        varchar MaMau
     }
 
-    REMINDERS {
+    phientaptrung {
         bigserial id PK
-        bigint user_id FK
-        bigint task_id FK
-        timestamptz remind_at
-        varchar channel
-        boolean is_sent
+        bigint NguoiDungId FK
+        bigint CongViecId FK
+        timestamptz ThoiGianBatDau
+        timestamptz ThoiGianKetThuc
+        int ThoiLuongPhut
+        varchar LoaiPhien
+        boolean HoanThanh
     }
 
-    AI_SCHEDULING_LOGS {
+    nhacnho {
         bigserial id PK
-        bigint user_id FK
-        varchar action_type
-        text input_prompt
-        jsonb raw_ai_response
-        varchar status
-        int tokens_used
+        bigint NguoiDungId FK
+        bigint CongViecId FK
+        timestamptz ThoiGianNhac
+        varchar KenhNhac
+        boolean DaGui
     }
 
-    PRODUCTIVITY_LOGS {
+    thongbao {
         bigserial id PK
-        bigint user_id FK
-        date log_date
-        int total_tasks_completed
-        int total_focus_minutes
-        numeric on_time_completion_rate
-        text ai_insights
+        bigint NguoiDungId FK
+        bigint CongViecId FK
+        varchar LoaiThongBao
+        varchar TieuDe
+        text NoiDung
+        boolean DaDoc
+        timestamptz NgayTao
+    }
+
+    nhatkyai {
+        bigserial id PK
+        bigint NguoiDungId FK
+        varchar LoaiHanhDong
+        text CauLenhDauVao
+        jsonb PhanHoiAI
+        varchar TrangThai
+        int SoToken
+    }
+
+    nhatkynangsuat {
+        bigserial id PK
+        bigint NguoiDungId FK
+        date NgayBaoCao
+        int TongCongViecHoanThanh
+        int TongPhutTapTrung
+        numeric TyLeDungHan
+        text NhanXetAI
     }
 ```
 
-### 3.2. Đặc tả chi tiết các bảng dữ liệu
+### 3.2. Đặc tả chi tiết các bảng dữ liệu (Quy chuẩn tiếng Việt)
 
-#### Bảng 1: `users` (Người dùng hệ thống)
+> **Quy tắc chuẩn hóa CSDL:**
+> - **Tên bảng:** Viết thường toàn bộ (`nguoidung`, `congviec`, `khoithoigian`, `danhmuc`, `thongbao`...), không dùng dấu gạch dưới `_`.
+> - **Tên thuộc tính (cột):** Viết hoa các âm (`HoVaTen`, `MatKhau`, `HanChot`, `TieuDe`, `NgayTao`...), không dùng dấu gạch dưới `_`.
+
+#### Bảng 1: `nguoidung` (Người dùng & Tài khoản hệ thống)
 | Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả ý nghĩa |
 | :--- | :--- | :--- | :--- |
 | `id` | `BIGSERIAL` | PRIMARY KEY | Khóa chính định danh người dùng |
-| `email` | `VARCHAR(120)`| NOT NULL, UNIQUE | Địa chỉ email đăng nhập |
-| `password_hash`| `VARCHAR(255)`| NOT NULL | Mật khẩu băm bằng thuật toán BCrypt |
-| `full_name` | `VARCHAR(100)`| NOT NULL | Họ và tên hiển thị của người dùng |
-| `phone_number` | `VARCHAR(20)` | NULL | Số điện thoại liên hệ |
-| `avatar_url` | `VARCHAR(500)`| NULL | Đường dẫn URL ảnh đại diện |
-| `auth_provider`| `VARCHAR(20)` | DEFAULT 'LOCAL' | Phương thức xác thực: LOCAL hoặc GOOGLE |
-| `is_active` | `BOOLEAN` | DEFAULT TRUE | Trạng thái hoạt động tài khoản |
-| `created_at` | `TIMESTAMPTZ` | DEFAULT CURRENT_TIMESTAMP | Thời điểm tạo tài khoản |
-| `updated_at` | `TIMESTAMPTZ` | DEFAULT CURRENT_TIMESTAMP | Thời điểm cập nhật cuối |
+| `Email` | `VARCHAR(120)`| NOT NULL, UNIQUE | Địa chỉ email đăng nhập |
+| `MatKhau` | `VARCHAR(255)`| NOT NULL | Mật khẩu băm bằng thuật toán BCrypt |
+| `HoVaTen` | `VARCHAR(100)`| NOT NULL | Họ và tên hiển thị của người dùng (ví dụ: *"Minh Anh"*) |
+| `SoDienThoai` | `VARCHAR(20)` | NULL | Số điện thoại liên hệ |
+| `AnhDaiDien` | `VARCHAR(500)`| NULL | Đường dẫn URL ảnh đại diện |
+| `NguonXacThuc` | `VARCHAR(20)` | DEFAULT 'LOCAL' | Phương thức xác thực: LOCAL hoặc GOOGLE |
+| `KichHoat` | `BOOLEAN` | DEFAULT TRUE | Trạng thái hoạt động tài khoản |
+| `XacThucEmail` | `BOOLEAN` | DEFAULT FALSE | Trạng thái xác thực email |
+| `NgayTao` | `TIMESTAMPTZ` | DEFAULT CURRENT_TIMESTAMP | Thời điểm tạo tài khoản |
+| `NgayCapNhat` | `TIMESTAMPTZ` | DEFAULT CURRENT_TIMESTAMP | Thời điểm cập nhật cuối |
 
-#### Bảng 2: `roles` & `user_roles` (Phân quyền người dùng)
-- **`roles`:** Chứa danh sách các quyền hạn (`ROLE_USER`, `ROLE_ADMIN`).
-- **`user_roles`:** Bảng trung gian thể hiện quan hệ N-N giữa `users` và `roles`.
+#### Bảng 2: `vaitro` & `vaitronguoidung` (Phân quyền bảo mật RBAC)
+- **`vaitro`:** Chứa danh sách các quyền hạn (`ROLE_USER`, `ROLE_ADMIN`).
+- **`vaitronguoidung`:** Bảng trung gian thể hiện quan hệ N-N giữa `nguoidung` và `vaitro`.
 
-#### Bảng 3: `user_preferences` (Cấu hình thói quen làm việc & AI)
+#### Bảng 3: `caidatnguoidung` (Cấu hình thói quen làm việc & AI)
 | Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả ý nghĩa |
 | :--- | :--- | :--- | :--- |
-| `id` | `BIGSERIAL` | PRIMARY KEY | Khóa chính |
-| `user_id` | `BIGINT` | NOT NULL, UNIQUE, FK -> users(id) | Liên kết 1-1 với người dùng |
-| `work_start_time`| `TIME` | DEFAULT '08:00:00' | Giờ bắt đầu làm việc trong ngày |
-| `work_end_time` | `TIME` | DEFAULT '18:00:00' | Giờ kết thúc làm việc trong ngày |
-| `working_days` | `VARCHAR(50)` | DEFAULT 'MON,TUE,WED,THU,FRI' | Danh sách các ngày làm việc |
-| `buffer_time_minutes`| `INT` | DEFAULT 15 | Thời gian đệm nghỉ giữa 2 việc (phút) |
-| `peak_productivity_time`| `VARCHAR(20)`| DEFAULT 'MORNING' | Khung giờ làm việc hiệu quả nhất: MORNING, AFTERNOON, EVENING |
-| `default_pomodoro_minutes`| `INT`| DEFAULT 25 | Thời lượng mỗi phiên Pomodoro |
-| `auto_reschedule_enabled` | `BOOLEAN`| DEFAULT TRUE | Bật/Tắt tự động dời việc khi trễ |
-| `timezone` | `VARCHAR(50)` | DEFAULT 'Asia/Ho_Chi_Minh' | Múi giờ của người dùng |
+| `id` | `BIGSERIAL` | PRIMARY KEY | Khóa chính cấu hình |
+| `NguoiDungId` | `BIGINT` | NOT NULL, UNIQUE, FK -> nguoidung(id) | Liên kết 1-1 với người dùng |
+| `GioBatDauLamViec`| `TIME` | DEFAULT '08:00:00' | Giờ bắt đầu làm việc trong ngày |
+| `GioKetThucLamViec`| `TIME` | DEFAULT '18:00:00' | Giờ kết thúc làm việc trong ngày |
+| `NgayLamViec` | `VARCHAR(50)` | DEFAULT 'MON,TUE,WED,THU,FRI' | Danh sách các ngày làm việc |
+| `ThoiGianDemPhut` | `INT` | DEFAULT 15 | Thời gian đệm nghỉ giữa 2 việc (phút) |
+| `ThoiGianHieuSuatCao`| `VARCHAR(20)`| DEFAULT 'MORNING' | Khung giờ làm việc hiệu quả nhất: MORNING, AFTERNOON, EVENING |
+| `ThoiGianPomodoroMacDinh`| `INT`| DEFAULT 25 | Thời lượng mỗi phiên Pomodoro |
+| `TuDongDoiLich` | `BOOLEAN` | DEFAULT TRUE | Bật/Tắt tự động dời việc khi trễ |
+| `MuiGio` | `VARCHAR(50)` | DEFAULT 'Asia/Ho_Chi_Minh' | Múi giờ của người dùng |
 
-#### Bảng 4: `categories` (Danh mục công việc)
+#### Bảng 4: `khonggianlamviec` (Không gian làm việc độc lập)
 | Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả ý nghĩa |
 | :--- | :--- | :--- | :--- |
-| `id` | `BIGSERIAL` | PRIMARY KEY | Khóa chính |
-| `user_id` | `BIGINT` | NOT NULL, FK -> users(id) | Người sở hữu danh mục |
-| `name` | `VARCHAR(100)`| NOT NULL | Tên danh mục (Học tập, Công việc, Sức khỏe...) |
-| `color_code` | `VARCHAR(20)` | DEFAULT '#4F46E5' | Mã màu HEX hiển thị trên giao diện |
-| `icon_name` | `VARCHAR(50)` | DEFAULT 'Folder' | Tên icon biểu tượng |
-| `is_default` | `BOOLEAN` | DEFAULT FALSE | Đánh dấu danh mục mặc định của hệ thống |
+| `id` | `BIGSERIAL` | PRIMARY KEY | Khóa chính không gian |
+| `NguoiDungId` | `BIGINT` | NOT NULL, FK -> nguoidung(id) | Người sở hữu không gian |
+| `TenKhongGian` | `VARCHAR(100)`| NOT NULL | Tên không gian làm việc (Không gian cá nhân, Đồ án tốt nghiệp...) |
+| `TenBieuTuong` | `VARCHAR(50)` | DEFAULT 'Briefcase' | Biểu tượng không gian làm việc |
+| `MacDinh` | `BOOLEAN` | DEFAULT FALSE | Đánh dấu không gian mặc định |
 
-#### Bảng 5: `tasks` (Công việc / Nhiệm vụ chính)
+#### Bảng 5: `danhmuc` (Danh mục công việc)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả ý nghĩa |
+| :--- | :--- | :--- | :--- |
+| `id` | `BIGSERIAL` | PRIMARY KEY | Khóa chính danh mục |
+| `NguoiDungId` | `BIGINT` | NOT NULL, FK -> nguoidung(id) | Người sở hữu danh mục |
+| `KhongGianId` | `BIGINT` | NULL, FK -> khonggianlamviec(id) | Thuộc không gian làm việc nào |
+| `TenDanhMuc` | `VARCHAR(100)`| NOT NULL | Tên danh mục (Học tập, Công việc, Sức khỏe...) |
+| `MaMau` | `VARCHAR(20)` | DEFAULT '#4F46E5' | Mã màu HEX hiển thị trên giao diện |
+| `TenBieuTuong` | `VARCHAR(50)` | DEFAULT 'Folder' | Tên icon biểu tượng |
+| `MacDinh` | `BOOLEAN` | DEFAULT FALSE | Đánh dấu danh mục mặc định của hệ thống |
+
+#### Bảng 6: `congviec` (Công việc / Nhiệm vụ chính)
 | Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả ý nghĩa |
 | :--- | :--- | :--- | :--- |
 | `id` | `BIGSERIAL` | PRIMARY KEY | Khóa chính định danh nhiệm vụ |
-| `user_id` | `BIGINT` | NOT NULL, FK -> users(id) | Người sở hữu nhiệm vụ |
-| `category_id` | `BIGINT` | NULL, FK -> categories(id) | Danh mục phân loại nhiệm vụ |
-| `title` | `VARCHAR(255)`| NOT NULL | Tiêu đề công việc |
-| `description` | `TEXT` | NULL | Chi tiết mô tả hoặc ghi chú công việc |
-| `priority` | `VARCHAR(20)` | DEFAULT 'MEDIUM' | Mức độ ưu tiên: LOW, MEDIUM, HIGH, URGENT |
-| `eisenhower_quadrant`| `VARCHAR(20)`| DEFAULT 'SCHEDULE' | Ma trận Eisenhower: DO_FIRST, SCHEDULE, DELEGATE, DONT_DO |
-| `status` | `VARCHAR(20)` | DEFAULT 'TODO' | Trạng thái: TODO, IN_PROGRESS, COMPLETED, CANCELLED, OVERDUE |
-| `due_date` | `TIMESTAMPTZ` | NULL | Hạn chót hoàn thành (Deadline) |
-| `estimated_duration_minutes`| `INT`| DEFAULT 30 | Thời lượng ước tính cần để làm xong (phút) |
-| `actual_duration_minutes` | `INT`| DEFAULT 0 | Thời lượng thực tế đã thực hiện (phút) |
-| `is_fixed_time` | `BOOLEAN` | DEFAULT FALSE | Đánh dấu lịch cố định (họp, thi) không được tự dời |
-| `fixed_start_time` | `TIMESTAMPTZ`| NULL | Thời điểm bắt đầu cố định |
-| `fixed_end_time` | `TIMESTAMPTZ`| NULL | Thời điểm kết thúc cố định |
-| `is_recurring` | `BOOLEAN` | DEFAULT FALSE | Đánh dấu công việc lặp lại định kỳ |
-| `recurrence_rule` | `VARCHAR(100)`| NULL | Quy tắc lặp (DAILY, WEEKLY_MON_WED_FRI) |
-| `parent_task_id`| `BIGINT` | NULL, FK -> tasks(id) | Khóa ngoại trỏ đến Task cha (nếu có) |
-| `completed_at` | `TIMESTAMPTZ` | NULL | Thời điểm hoàn thành nhiệm vụ |
+| `NguoiDungId` | `BIGINT` | NOT NULL, FK -> nguoidung(id) | Người sở hữu nhiệm vụ |
+| `KhongGianId` | `BIGINT` | NOT NULL, FK -> khonggianlamviec(id) | Không gian làm việc trực thuộc |
+| `DanhMucId` | `BIGINT` | NULL, FK -> danhmuc(id) | Danh mục phân loại nhiệm vụ |
+| `TieuDe` | `VARCHAR(255)`| NOT NULL | Tiêu đề công việc |
+| `MoTa` | `TEXT` | NULL | Chi tiết mô tả hoặc ghi chú công việc |
+| `MucDoUuTien` | `VARCHAR(20)` | DEFAULT 'MEDIUM' | Mức độ ưu tiên: LOW, MEDIUM, HIGH, URGENT |
+| `GocPhanTu` | `VARCHAR(20)` | DEFAULT 'SCHEDULE' | Ma trận Eisenhower: DO_FIRST, SCHEDULE, DELEGATE, DONT_DO |
+| `TrangThai` | `VARCHAR(20)` | DEFAULT 'TODO' | Trạng thái: TODO, IN_PROGRESS, COMPLETED, CANCELLED, OVERDUE |
+| `HanChot` | `TIMESTAMPTZ` | NULL | Hạn chót hoàn thành (Deadline) |
+| `ThoiLuongUocTinh`| `INT` | DEFAULT 30 | Thời lượng ước tính cần để làm xong (phút) |
+| `ThoiLuongThucTe` | `INT` | DEFAULT 0 | Thời lượng thực tế đã thực hiện (phút) |
+| `LichCoDinh` | `BOOLEAN` | DEFAULT FALSE | Đánh dấu lịch cố định (họp, thi) không được tự dời |
+| `BatDauCoDinh` | `TIMESTAMPTZ` | NULL | Thời điểm bắt đầu cố định |
+| `KetThucCoDinh` | `TIMESTAMPTZ` | NULL | Thời điểm kết thúc cố định |
+| `LapLai` | `BOOLEAN` | DEFAULT FALSE | Đánh dấu công việc lặp lại định kỳ |
+| `QuyTacLapLai` | `VARCHAR(100)`| NULL | Quy tắc lặp (DAILY, WEEKLY_MON_WED_FRI) |
+| `CongViecChaId` | `BIGINT` | NULL, FK -> congviec(id) | Khóa ngoại trỏ đến công việc cha |
+| `HoanThanhLuc` | `TIMESTAMPTZ` | NULL | Thời điểm hoàn thành nhiệm vụ |
 
-#### Bảng 6: `subtasks` (Công việc con / Checklist)
-- `id` (BIGSERIAL PK), `task_id` (FK -> tasks), `title` (VARCHAR), `is_completed` (BOOLEAN), `sort_order` (INT).
+#### Bảng 7: `congvieccon` (Công việc con / Checklist)
+- `id` (BIGSERIAL PK), `CongViecId` (FK -> congviec), `TieuDe` (VARCHAR), `HoanThanh` (BOOLEAN), `ThoiLuongPhut` (INT), `ThuTu` (INT).
 
-#### Bảng 7: `time_blocks` (Khối thời gian trên lịch)
-- `id` (BIGSERIAL PK), `user_id` (FK -> users), `task_id` (FK -> tasks), `title` (VARCHAR), `start_time` (TIMESTAMPTZ), `end_time` (TIMESTAMPTZ), `is_auto_scheduled` (BOOLEAN - cờ xác nhận do AI lập lịch), `status` (SCHEDULED, IN_PROGRESS, COMPLETED, SKIPPED).
+#### Bảng 8: `khoithoigian` (Khối thời gian trên lịch 0:00 - 23:59)
+- `id` (BIGSERIAL PK), `NguoiDungId` (FK -> nguoidung), `CongViecId` (FK -> congviec), `TieuDe` (VARCHAR), `ThoiGianBatDau` (TIMESTAMPTZ), `ThoiGianKetThuc` (TIMESTAMPTZ), `TuDongXepLich` (BOOLEAN), `TrangThai` (SCHEDULED, IN_PROGRESS, COMPLETED, CANCELLED), `MaMau` (VARCHAR), `GhiChu` (TEXT).
 
-#### Bảng 8: `pomodoro_sessions` (Phiên tập trung Pomodoro)
-- `id` (BIGSERIAL PK), `user_id` (FK -> users), `task_id` (FK -> tasks), `start_time` (TIMESTAMPTZ), `end_time` (TIMESTAMPTZ), `duration_minutes` (INT), `session_type` (WORK, SHORT_BREAK, LONG_BREAK), `is_completed` (BOOLEAN).
+#### Bảng 9: `phientaptrung` (Phiên tập trung Pomodoro)
+- `id` (BIGSERIAL PK), `NguoiDungId` (FK -> nguoidung), `CongViecId` (FK -> congviec), `ThoiGianBatDau` (TIMESTAMPTZ), `ThoiGianKetThuc` (TIMESTAMPTZ), `ThoiLuongPhut` (INT), `LoaiPhien` (WORK, SHORT_BREAK, LONG_BREAK), `HoanThanh` (BOOLEAN).
 
-#### Bảng 9: `reminders` (Cấu hình thông báo nhắc nhở)
-- `id` (BIGSERIAL PK), `user_id` (FK -> users), `task_id` (FK -> tasks), `remind_at` (TIMESTAMPTZ), `channel` (PUSH, EMAIL, IN_APP), `is_sent` (BOOLEAN).
+#### Bảng 10: `nhacnho` (Cấu hình thông báo nhắc nhở)
+- `id` (BIGSERIAL PK), `NguoiDungId` (FK -> nguoidung), `CongViecId` (FK -> congviec), `ThoiGianNhac` (TIMESTAMPTZ), `KenhNhac` (PUSH, EMAIL, IN_APP), `DaGui` (BOOLEAN).
 
-#### Bảng 10: `ai_scheduling_logs` (Nhật ký xử lý của Gemini API)
-- `id` (BIGSERIAL PK), `user_id` (FK -> users), `action_type` (AUTO_SCHEDULE, TASK_BREAKDOWN, NATURAL_PARSING, RESCHEDULE_OVERDUE), `input_prompt` (TEXT), `raw_ai_response` (JSONB), `tokens_used` (INT), `execution_time_ms` (BIGINT).
+#### Bảng 11: `thongbao` (Thông báo hệ thống & Thuật toán quyết định)
+- `id` (BIGSERIAL PK), `NguoiDungId` (FK -> nguoidung), `CongViecId` (FK -> congviec), `LoaiThongBao` (reminder, ai, alert, success), `TieuDe` (VARCHAR), `NoiDung` (TEXT), `DaDoc` (BOOLEAN), `NgayTao` (TIMESTAMPTZ).
 
-#### Bảng 11: `productivity_logs` (Thống kê năng suất ngày)
-- `id` (BIGSERIAL PK), `user_id` (FK -> users), `log_date` (DATE), `total_tasks_completed` (INT), `total_focus_minutes` (INT), `on_time_completion_rate` (NUMERIC(5,2)), `ai_insights` (TEXT).
+#### Bảng 12: `nhatkyai` (Nhật ký xử lý của Gemini API)
+- `id` (BIGSERIAL PK), `NguoiDungId` (FK -> nguoidung), `LoaiHanhDong` (VARCHAR), `CauLenhDauVao` (TEXT), `PhanHoiAI` (JSONB), `TrangThai` (VARCHAR), `SoToken` (INT), `ThoiGianXuLyMs` (BIGINT).
+
+#### Bảng 13: `nhatkynangsuat` (Thống kê năng suất ngày)
+- `id` (BIGSERIAL PK), `NguoiDungId` (FK -> nguoidung), `NgayBaoCao` (DATE), `TongCongViecHoanThanh` (INT), `TongPhutTapTrung` (INT), `TyLeDungHan` (NUMERIC(5,2)), `NhanXetAI` (TEXT).
 
 ### 3.3. Các chỉ mục (Indexes) và chiến lược tối ưu hóa
-1. `idx_tasks_user_status` trên `(user_id, status)`: Tối ưu hóa truy vấn lấy danh sách việc cần làm (`TODO`, `IN_PROGRESS`).
-2. `idx_tasks_user_due_date` trên `(user_id, due_date)`: Hỗ trợ tìm kiếm các việc sắp đến hạn hoặc quá hạn nhanh chóng.
-3. `idx_time_blocks_user_time` trên `(user_id, start_time, end_time)`: Tối ưu hóa truy vấn kiểm tra xung đột thời gian và tìm kiếm khoảng trống lập lịch.
-4. `idx_reminders_unsent` trên `(remind_at) WHERE is_sent = FALSE`: Partial Index siêu nhanh cho Background Job gửi thông báo định kỳ mỗi phút.
+1. `idx_congviec_nguoidung_trangthai` trên `("NguoiDungId", "TrangThai")`: Tối ưu hóa truy vấn lấy danh sách việc cần làm (`TODO`, `IN_PROGRESS`).
+2. `idx_congviec_nguoidung_hanchot` trên `("NguoiDungId", "HanChot")`: Hỗ trợ tìm kiếm các việc sắp đến hạn hoặc quá hạn nhanh chóng.
+3. `idx_khoithoigian_nguoidung_thoigian` trên `("NguoiDungId", "ThoiGianBatDau", "ThoiGianKetThuc")`: Tối ưu hóa truy vấn kiểm tra xung đột thời gian và hiển thị lịch tuần 0:00 - 23:59.
+4. `idx_thongbao_nguoidung_dadoc` trên `("NguoiDungId", "DaDoc")`: Tối ưu hóa đếm số lượng thông báo chưa đọc.
 
 ---
 

@@ -364,18 +364,13 @@ export default function TasksView({
             return (
               <div
                 key={task.id}
+                className="task-row-card"
                 style={{
-                  background: 'var(--surface)',
-                  borderRadius: 12,
-                  padding: '14px 18px',
-                  border: '1px solid var(--border)',
                   borderLeft: `4px solid ${cat.colorCode}`,
-                  boxShadow: 'var(--shadow-xs)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   gap: 16,
-                  transition: 'all 0.2s',
                 }}
               >
                 {/* Left: Checkbox + Title + Meta info */}
@@ -412,6 +407,13 @@ export default function TasksView({
                     >
                       {task.title}
                     </div>
+
+                    {task.note && (
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontStyle: 'italic', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span>💬</span>
+                        <span>{task.note}</span>
+                      </div>
+                    )}
 
                     <div
                       style={{

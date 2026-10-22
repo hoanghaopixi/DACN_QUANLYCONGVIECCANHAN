@@ -222,6 +222,7 @@ export default function MonthCalendar({
                   return (
                     <div
                       key={task.id}
+                      className="month-task-chip"
                       onClick={(e) => {
                         e.stopPropagation();
                         onSelectBlock(task);

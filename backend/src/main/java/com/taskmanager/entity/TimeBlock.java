@@ -5,7 +5,7 @@ import lombok.*;
 import java.time.OffsetDateTime;
 
 @Entity
-@Table(name = "time_blocks")
+@Table(name = "khoithoigian")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -15,42 +15,43 @@ public class TimeBlock {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "\"id\"")
     private Long id;
 
-    @Column(name = "user_id", nullable = false)
+    @Column(name = "\"NguoiDungId\"", nullable = false)
     private Long userId;
 
-    @Column(name = "task_id")
+    @Column(name = "\"CongViecId\"")
     private Long taskId;
 
-    @Column(nullable = false, length = 255)
+    @Column(name = "\"TieuDe\"", nullable = false, length = 255)
     private String title;
 
-    @Column(name = "start_time", nullable = false)
+    @Column(name = "\"ThoiGianBatDau\"", nullable = false)
     private OffsetDateTime startTime;
 
-    @Column(name = "end_time", nullable = false)
+    @Column(name = "\"ThoiGianKetThuc\"", nullable = false)
     private OffsetDateTime endTime;
 
-    @Column(name = "is_auto_scheduled")
+    @Column(name = "\"TuDongXepLich\"")
     @Builder.Default
     private Boolean isAutoScheduled = false;
 
-    @Column(length = 20)
+    @Column(name = "\"TrangThai\"", length = 20)
     @Builder.Default
     private String status = "SCHEDULED";
 
-    @Column(name = "color_code", length = 20)
+    @Column(name = "\"MaMau\"", length = 20)
     private String colorCode;
 
-    @Column(columnDefinition = "TEXT")
+    @Column(name = "\"GhiChu\"", columnDefinition = "TEXT")
     private String note;
 
-    @Column(name = "created_at")
+    @Column(name = "\"NgayTao\"")
     @Builder.Default
     private OffsetDateTime createdAt = OffsetDateTime.now();
 
-    @Column(name = "updated_at")
+    @Column(name = "\"NgayCapNhat\"")
     @Builder.Default
     private OffsetDateTime updatedAt = OffsetDateTime.now();
 }
