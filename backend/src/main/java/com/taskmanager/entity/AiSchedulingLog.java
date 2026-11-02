@@ -27,6 +27,7 @@ public class AiSchedulingLog {
     @Column(name = "\"CauLenhDauVao\"", nullable = false, columnDefinition = "TEXT")
     private String promptInput;
 
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
     @Column(name = "\"PhanHoiAI\"", columnDefinition = "jsonb")
     private String aiResponse;
 

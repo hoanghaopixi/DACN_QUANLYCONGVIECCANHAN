@@ -1,7 +1,6 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
-import HeroHeader from './components/HeroHeader';
 import CalendarControls from './components/CalendarControls';
 import WeeklyCalendar from './components/WeeklyCalendar';
 import MonthCalendar from './components/MonthCalendar';
@@ -12,13 +11,19 @@ import CategoryModal from './components/CategoryModal';
 import AuthPage from './pages/AuthPage';
 import TasksView from './components/TasksView';
 import SettingsPage from './pages/settings/SettingsPage';
+import ProductivityDashboard from './components/ProductivityDashboard';
+import AutoScheduleModal from './components/AutoScheduleModal';
 
 import { taskService } from './services/taskService';
 import { categoryService } from './services/categoryService';
+import { habitService } from './services/habitService';
 import { authService, AuthResponse } from './services/authService';
+import { preferenceService } from './services/preferenceService';
 import { WorkspaceItem } from './services/workspaceService';
-import { ViewMode, TimeBlock, Category, UserStats } from './types';
+import { ViewMode, TimeBlock, Category, UserStats, TaskStatus } from './types';
 import { matchesSearch } from './utils/vietnameseSearch';
+import { formatDateDDMMYYYY } from './utils/dateTimeFormat';
+import { runViewTransition } from './utils/viewTransition';
 
 export default function App() {
   // ── Theme State (Light / Dark) ──
@@ -40,26 +45,170 @@ export default function App() {
     return authService.getCurrentUser();
   });
 
+  // ── Custom Personalized Background State ──
+  const [backgroundSettings, setBackgroundSettings] = useState<{
+    backgroundUrl?: string;
+    backgroundType?: 'NONE' | 'IMAGE' | 'VIDEO';
+    overlayDarkness?: number;
+  }>({
+    backgroundUrl: '',
+    backgroundType: 'NONE',
+    overlayDarkness: 50,
+  });
+
+  // Load preferences (including custom background) from PostgreSQL on startup
+  useEffect(() => {
+    preferenceService.getPreferences().then((pref) => {
+      if (pref) {
+        setBackgroundSettings({
+          backgroundUrl: pref.backgroundUrl || '',
+          backgroundType: (pref.backgroundType as any) || 'NONE',
+          overlayDarkness: pref.overlayDarkness !== undefined ? pref.overlayDarkness : 50,
+        });
+      }
+    }).catch(() => {});
+  }, [currentUser]);
+
   // ── Active Workspace State ──
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceItem | null>(null);
 
   // ── Toast Notification State ──
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isToastClosing, setIsToastClosing] = useState(false);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => {
-      setToastMessage(null);
+    // Tự động gạt bỏ các icon/emoji mở đầu (✓, ⚠️, 🎉, ⏳, 🔥, v.v.) để thông báo sạch sẽ, tự nhiên, không AI
+    const cleanMsg = (msg || '').replace(/^[\s✓⚠️🎉⏳🔥❌ℹ️]+/, '').trim();
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    if (toastExitTimerRef.current) clearTimeout(toastExitTimerRef.current);
+    setToastMessage(cleanMsg);
+    setIsToastClosing(false);
+    toastTimerRef.current = setTimeout(() => {
+      setIsToastClosing(true);
+      toastExitTimerRef.current = setTimeout(() => {
+        setToastMessage(null);
+        setIsToastClosing(false);
+        toastTimerRef.current = null;
+        toastExitTimerRef.current = null;
+      }, 260);
     }, 2800);
   };
 
   // ── Calendar & Navigation State ──
-  const [activeNav, setActiveNav] = useState('calendar'); // 'calendar' | 'tasks' | 'ai'
+  const [activeNav, setActiveNav] = useState('calendar'); // 'calendar' | 'tasks' | 'productivity' | 'settings'
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [viewMode, setViewMode] = useState<ViewMode>('week');
+
+  const navigateTo = (nav: string) => runViewTransition(() => setActiveNav(nav));
+  const selectCategoryAndNavigate = (categoryName: string | null) => runViewTransition(() => {
+    setSelectedCategory(categoryName);
+    setActiveNav('calendar');
+  });
+  const selectWorkspaceAndNavigate = (workspace: WorkspaceItem) => runViewTransition(() => {
+    setSelectedCategory(null);
+    setActiveWorkspace(workspace);
+    setActiveNav('calendar');
+  });
   const [searchQuery, setSearchQuery] = useState('');
+  const [focusedCalendarTaskId, setFocusedCalendarTaskId] = useState<number | null>(null);
   // Calendar navigation date state (defaults to real current time: new Date())
   const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
+
+  // ── Privacy Lock State (Khóa lịch trình bí mật) ──
+  const [isPrivacyUnlocked, setIsPrivacyUnlocked] = useState(false);
+  const [unlockedScheduleIds, setUnlockedScheduleIds] = useState<Set<number>>(() => new Set());
+
+  const handleTogglePrivacyLock = () => {
+    if (isPrivacyUnlocked || unlockedScheduleIds.size > 0) {
+      setIsPrivacyUnlocked(false);
+      setUnlockedScheduleIds(new Set());
+      showToast('Đã khóa lại tất cả lịch trình bí mật!');
+    }
+  };
+
+  const handleUnlockSuccess = () => {
+    setIsPrivacyUnlocked(true);
+    showToast('Đã xác thực mật khẩu! Toàn bộ lịch trình bí mật đã được hiển thị.');
+  };
+
+  const handleUnlockSingleSchedule = (scheduleId: number) => {
+    setUnlockedScheduleIds((prev) => new Set(prev).add(scheduleId));
+    showToast('Đã mở khóa lịch trình này!');
+  };
+
+
+  // ── AI Panel Width & Resizing States (Max/Default: 300px, Min: 180px - giới hạn 300px để nhường chỗ cho calendar) ──
+  const [aiPanelWidth, setAiPanelWidth] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('smarttask_ai_panel_width');
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed >= 180 && parsed <= 300) {
+          return parsed;
+        }
+      }
+    } catch {}
+    return 300;
+  });
+  const [isAiPanelCollapsed, setIsAiPanelCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('smarttask_ai_panel_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleAiPanelCollapse = () => {
+    setIsAiPanelCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('smarttask_ai_panel_collapsed', String(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const [isResizingAiPanel, setIsResizingAiPanel] = useState(false);
+  const contentBodyRef = useRef<HTMLDivElement>(null);
+
+  const handleMouseDownResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizingAiPanel(true);
+  };
+
+  useEffect(() => {
+    if (!isResizingAiPanel) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!contentBodyRef.current) return;
+      const rect = contentBodyRef.current.getBoundingClientRect();
+      // Panel giới hạn tối đa 300px (mặc định), tối thiểu 180px
+      const maxW = 300;
+      const minW = 180;
+      const calculatedWidth = rect.right - e.clientX;
+      const finalWidth = Math.max(minW, Math.min(calculatedWidth, maxW));
+
+      setAiPanelWidth(finalWidth);
+      try {
+        localStorage.setItem('smarttask_ai_panel_width', String(finalWidth));
+      } catch {}
+    };
+
+    const handleMouseUp = () => {
+      setIsResizingAiPanel(false);
+    };
+
+    document.body.classList.add('is-resizing-ai');
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.body.classList.remove('is-resizing-ai');
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizingAiPanel]);
 
   // Category Modal states
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
@@ -71,6 +220,18 @@ export default function App() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingBlock, setEditingBlock] = useState<any>(null);
+  const [isAutoScheduleModalOpen, setIsAutoScheduleModalOpen] = useState(false);
+
+  const openTaskModal = (block: any) => runViewTransition(() => {
+    setEditingBlock(block);
+    setIsModalOpen(true);
+  });
+  const closeTaskModal = () => runViewTransition(() => setIsModalOpen(false));
+  const openCategoryModal = (category: Category | null) => runViewTransition(() => {
+    setEditingCategory(category);
+    setIsCategoryModalOpen(true);
+  });
+  const closeCategoryModal = () => runViewTransition(() => setIsCategoryModalOpen(false));
 
   // ── Load Real Data from PostgreSQL via Spring Boot Backend for the Active Workspace ──
   const loadData = useCallback(async (wsId?: number) => {
@@ -93,6 +254,17 @@ export default function App() {
     loadData(activeWorkspace?.id);
   }, [loadData, currentUser, activeWorkspace?.id]);
 
+  // Sync latest user profile from backend PostgreSQL on startup
+  useEffect(() => {
+    if (authService.getCurrentUser()) {
+      authService.getProfile().then((freshUser) => {
+        if (freshUser) {
+          setCurrentUser(freshUser);
+        }
+      }).catch(() => {});
+    }
+  }, []);
+
   const handleLoginSuccess = (user: AuthResponse) => {
     setCurrentUser(user);
     showToast(`Chào mừng ${user.fullName} đã đăng nhập!`);
@@ -107,9 +279,14 @@ export default function App() {
     showToast('Đã đăng xuất thành công.');
   };
 
-  const handleUpdateProfile = (updated: { fullName: string; phone?: string }) => {
+  const handleUpdateProfile = (updated: { fullName: string; phone?: string; avatarUrl?: string }) => {
     if (currentUser) {
-      const newUser = { ...currentUser, fullName: updated.fullName };
+      const newUser = {
+        ...currentUser,
+        fullName: updated.fullName,
+        phone: updated.phone !== undefined ? updated.phone : currentUser.phone,
+        avatarUrl: updated.avatarUrl !== undefined ? updated.avatarUrl : currentUser.avatarUrl,
+      };
       setCurrentUser(newUser);
       localStorage.setItem('smarttask_current_user', JSON.stringify(newUser));
       showToast('Đã lưu thông tin tài khoản thành công!');
@@ -121,17 +298,6 @@ export default function App() {
     if (!searchQuery.trim()) return true;
     return matchesSearch(b.title, searchQuery) || matchesSearch(b.description, searchQuery);
   });
-
-  // Calculate today's tasks count dynamically (GMT+7 today)
-  const now = new Date();
-  const currentYMD = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  const todayTasksCount = timeBlocks.filter((b) => {
-    const d = new Date(b.startTime);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}` === currentYMD;
-  }).length;
 
   // ── Date Navigation & Range Label ──
   const dayNames = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
@@ -151,11 +317,11 @@ export default function App() {
 
     if (viewMode === 'day') {
       const dayName = dayNames[currentDate.getDay()];
-      return `${dayName}, ${currentDate.getDate()} tháng ${month}, ${year}`;
+      return `${dayName}, ${formatDateDDMMYYYY(currentDate)}`;
     }
 
     if (viewMode === 'month') {
-      return `Tháng ${month}, ${year}`;
+      return `Tháng ${String(month).padStart(2, '0')}/${year}`;
     }
 
     // Week mode
@@ -163,18 +329,11 @@ export default function App() {
     const sunday = new Date(monday);
     sunday.setDate(monday.getDate() + 6);
 
-    const mMonth = monday.getMonth() + 1;
-    const sMonth = sunday.getMonth() + 1;
-    const sYear = sunday.getFullYear();
-
-    if (mMonth === sMonth) {
-      return `${monday.getDate()} – ${sunday.getDate()} tháng ${mMonth}, ${sYear}`;
-    } else {
-      return `${monday.getDate()}/${mMonth} – ${sunday.getDate()}/${sMonth}, ${sYear}`;
-    }
+    return `${formatDateDDMMYYYY(monday)} – ${formatDateDDMMYYYY(sunday)}`;
   }, [currentDate, viewMode]);
 
   const activeDays = useMemo(() => {
+    const now = new Date();
     const realTodayYMD = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
     if (viewMode === 'day') {
@@ -371,7 +530,7 @@ export default function App() {
     const endHourStr = hour === 23 ? '23' : (hour + 1).toString().padStart(2, '0');
     const endMinStr = hour === 23 ? '59' : '00';
 
-    setEditingBlock({
+    openTaskModal({
       title: '',
       categoryType: 'WORK',
       startTime: `${selectedDate}T${startHourStr}:00:00+07:00`,
@@ -379,11 +538,10 @@ export default function App() {
       priority: 'MEDIUM',
       status: 'TODO',
     });
-    setIsModalOpen(true);
   };
 
   const handleAddAtDate = (dateStr: string) => {
-    setEditingBlock({
+    openTaskModal({
       title: '',
       categoryType: 'WORK',
       startTime: `${dateStr}T09:00:00+07:00`,
@@ -391,18 +549,15 @@ export default function App() {
       priority: 'MEDIUM',
       status: 'TODO',
     });
-    setIsModalOpen(true);
   };
 
   // ── Category CRUD Handlers ──
   const handleOpenAddCategory = () => {
-    setEditingCategory(null);
-    setIsCategoryModalOpen(true);
+    openCategoryModal(null);
   };
 
   const handleOpenEditCategory = (cat: Category) => {
-    setEditingCategory(cat);
-    setIsCategoryModalOpen(true);
+    openCategoryModal(cat);
   };
 
   const handleSaveCategory = async (data: { id?: number; name: string; colorCode: string }) => {
@@ -412,14 +567,14 @@ export default function App() {
           name: data.name,
           colorCode: data.colorCode,
         });
-        showToast(`✓ Đã cập nhật nhóm "${data.name}"!`);
+        showToast(`Đã cập nhật nhóm "${data.name}"!`);
       } else {
         await categoryService.createCategory({
           name: data.name,
           colorCode: data.colorCode,
           workspaceId: activeWorkspace?.id || 1,
         });
-        showToast(`✓ Đã thêm nhóm mới "${data.name}"!`);
+        showToast(`Đã thêm nhóm mới "${data.name}"!`);
       }
       await loadData(activeWorkspace?.id);
     } catch (err) {
@@ -431,7 +586,7 @@ export default function App() {
   const handleDeleteCategory = async (id: number) => {
     try {
       await categoryService.deleteCategory(id);
-      showToast('✓ Đã xóa nhóm công việc thành công!');
+      showToast('Đã xóa nhóm công việc thành công!');
       if (selectedCategory) {
         const cat = categories.find((c) => c.id === id);
         if (cat && selectedCategory === cat.name) {
@@ -442,49 +597,95 @@ export default function App() {
     } catch (err: any) {
       console.error('Lỗi khi xóa nhóm:', err);
       const serverMsg = err.response?.data?.message || 'Không thể xóa nhóm này vì đang có công việc đang sử dụng!';
-      showToast(`⚠️ ${serverMsg}`);
+      showToast(serverMsg);
       throw err;
     }
   };
 
   // Handle select block to view / edit
   const handleSelectBlock = (block: TimeBlock) => {
-    setEditingBlock(block);
-    setIsModalOpen(true);
+    openTaskModal(block);
+  };
+
+  const handleSelectSearchTask = (taskId: number) => {
+    const task = timeBlocks.find((item) => item.id === taskId);
+    if (!task) {
+      showToast(`Không tìm thấy công việc #${taskId}`);
+      return;
+    }
+
+    const taskDate = new Date(task.startTime);
+    if (!Number.isFinite(taskDate.getTime())) {
+      showToast('Công việc này chưa có ngày hợp lệ để mở trên lịch.');
+      return;
+    }
+
+    setSelectedCategory(null);
+    setStatusFilter('ALL');
+    setViewMode('week');
+    setCurrentDate(taskDate);
+    setFocusedCalendarTaskId(task.id);
+    navigateTo('calendar');
   };
 
   // Handle saving task to Backend Database
   const handleSaveTask = async (taskData: any) => {
     try {
+      let savedTask: any = null;
       if (taskData.id) {
-        await taskService.updateTask(taskData.id, {
+        savedTask = await taskService.updateTask(taskData.id, {
           ...taskData,
           workspaceId: taskData.workspaceId || activeWorkspace?.id || 1,
         });
-        showToast('✓ Đã cập nhật công việc!');
+        showToast('Đã cập nhật công việc!');
       } else {
-        await taskService.createTask({
+        savedTask = await taskService.createTask({
           ...taskData,
           workspaceId: activeWorkspace?.id || 1,
         });
-        showToast('✓ Đã thêm công việc mới vào cơ sở dữ liệu!');
+        showToast('Đã thêm công việc mới vào cơ sở dữ liệu!');
       }
       await loadData(activeWorkspace?.id);
+      return savedTask;
     } catch (err) {
       console.error('Lỗi khi lưu công việc vào cơ sở dữ liệu:', err);
       showToast('Lỗi khi lưu công việc vào máy chủ');
+      throw err;
     }
   };
 
   // Handle deleting task from Backend Database
   const handleDeleteTask = async (id: number) => {
+    // 1. Optimistic removal for instant UI response
+    setTimeBlocks((prev) => prev.filter((b) => b.id !== id && (b as any).taskId !== id));
+    showToast('Đã xóa công việc khỏi lịch!');
+
     try {
+      // 2. Persist in database
       await taskService.deleteTask(id);
-      showToast('✓ Đã xóa công việc khỏi lịch!');
       await loadData(activeWorkspace?.id);
     } catch (err) {
       console.error('Lỗi khi xóa công việc khỏi cơ sở dữ liệu:', err);
       showToast('Lỗi khi xóa công việc khỏi máy chủ');
+      await loadData(activeWorkspace?.id);
+    }
+  };
+
+  // Handle toggling task status (TODO <-> COMPLETED) with instant optimistic update
+  const handleToggleTaskStatus = async (taskId: number, newStatus: TaskStatus) => {
+    // 1. Optimistic update
+    setTimeBlocks((prev) =>
+      prev.map((t) => (t.id === taskId || (t as any).taskId === taskId ? { ...t, status: newStatus } : t))
+    );
+
+    try {
+      // 2. Persist in database
+      await taskService.updateTask(taskId, { status: newStatus });
+      await loadData(activeWorkspace?.id);
+    } catch (err) {
+      console.error('Lỗi khi cập nhật trạng thái công việc:', err);
+      showToast('Lỗi khi cập nhật trạng thái công việc');
+      await loadData(activeWorkspace?.id);
     }
   };
 
@@ -498,7 +699,7 @@ export default function App() {
     const s = new Date(newStartTime);
     const dayNames = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
     const timeLabel = `${dayNames[s.getDay()]} lúc ${s.getHours().toString().padStart(2, '0')}:${s.getMinutes().toString().padStart(2, '0')}`;
-    showToast(`✓ Đã dời công việc sang ${timeLabel} thành công!`);
+    showToast(`Đã dời công việc sang ${timeLabel} thành công!`);
 
     try {
       const currentTask = timeBlocks.find((b) => b.id === blockId);
@@ -526,9 +727,24 @@ export default function App() {
     setTimeBlocks((prev) =>
       prev.map((b) => (b.id === task.id ? { ...b, status: nextStatus as any } : b))
     );
-    showToast(nextStatus === 'COMPLETED' ? '✓ Đã hoàn thành công việc!' : 'Đã chuyển trạng thái sang Cần làm');
+    showToast(nextStatus === 'COMPLETED' ? 'Đã đánh dấu hoàn thành công việc!' : 'Đã chuyển trạng thái sang Cần làm');
     try {
       await taskService.updateTask(task.id, { title: task.title, status: nextStatus });
+
+      // Nếu là thói quen định kỳ (recurring habit), tự động ghi nhận check-in vào CSDL nhatkythoiquen
+      if (task.isRecurring && nextStatus === 'COMPLETED') {
+        try {
+          await habitService.checkIn({
+            taskId: task.id,
+            status: 'COMPLETED',
+            note: 'Hoàn thành từ danh sách thói quen hàng ngày',
+          });
+          showToast(`Đã ghi nhận check-in chuỗi thói quen "${task.title}"!`);
+        } catch (habitErr) {
+          console.warn('Lỗi ghi nhận check-in thói quen:', habitErr);
+        }
+      }
+
       await loadData(activeWorkspace?.id);
     } catch (err) {
       console.error('Lỗi khi cập nhật trạng thái:', err);
@@ -553,7 +769,7 @@ export default function App() {
         isAutoScheduled: true,
         workspaceId: activeWorkspace?.id || 1,
       });
-      showToast('✓ Trợ lý AI đã thêm công việc vào lịch thành công!');
+      showToast('Trợ lý AI đã thêm công việc vào lịch thành công!');
       await loadData(activeWorkspace?.id);
       return created;
     } catch (err) {
@@ -576,37 +792,71 @@ export default function App() {
   }
 
   return (
-    <div className="app-layout">
+    <div className={`app-layout ${backgroundSettings.backgroundType !== 'NONE' && backgroundSettings.backgroundUrl ? 'has-custom-bg' : ''}`}>
+      {/* ── Personalized Custom Background Layer (Image or Looping Video with Dark Overlay) ── */}
+      {backgroundSettings.backgroundType !== 'NONE' && backgroundSettings.backgroundUrl && (
+        <div className="app-custom-bg-root">
+          {backgroundSettings.backgroundType === 'VIDEO' ? (
+            <video
+              key={backgroundSettings.backgroundUrl}
+              src={backgroundSettings.backgroundUrl}
+              autoPlay
+              loop
+              muted
+              playsInline
+              className="app-custom-bg-media"
+            />
+          ) : (
+            <div
+              className="app-custom-bg-media"
+              style={{ backgroundImage: `url(${backgroundSettings.backgroundUrl})` }}
+            />
+          )}
+          {/* Overlay: Phủ sáng ở light mode, Phủ tối ở dark mode (Tự động thích ứng, tùy chỉnh % trong Cài đặt) */}
+          <div
+            className="app-custom-bg-overlay"
+            style={{
+              backgroundColor: theme === 'dark'
+                ? `rgba(10, 15, 30, ${Math.max(45, backgroundSettings.overlayDarkness ?? 50) / 100})`
+                : `rgba(248, 250, 252, ${Math.max(45, backgroundSettings.overlayDarkness ?? 50) / 100})`,
+            }}
+          />
+        </div>
+      )}
+
       {/* ── Left Sidebar ── */}
       <Sidebar
         categories={categories}
         userName={displayName}
         activeNav={activeNav}
-        onNavChange={setActiveNav}
+        onNavChange={navigateTo}
         selectedCategory={selectedCategory}
-        onSelectCategory={setSelectedCategory}
+        onSelectCategory={selectCategoryAndNavigate}
         onAddCategory={handleOpenAddCategory}
         onEditCategory={handleOpenEditCategory}
         onDeleteCategory={handleDeleteCategory}
         currentUser={currentUser}
         onOpenAuthModal={handleLogout}
-        onOpenSettingsModal={() => setActiveNav('settings')}
+        onOpenSettingsModal={() => navigateTo('settings')}
         onLogout={handleLogout}
         activeWorkspace={activeWorkspace}
-        onWorkspaceChange={setActiveWorkspace}
+        onWorkspaceChange={selectWorkspaceAndNavigate}
         onShowToast={showToast}
       />
 
       {/* ── Center Main Content ── */}
       <main className="app-main">
         {activeNav === 'settings' ? (
-          <div className="view-transition-container" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+          <div key={activeNav} className="view-transition-container" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
             <SettingsPage
               currentUser={currentUser}
+              theme={theme}
+              onThemeChange={setTheme}
               onUpdateProfile={handleUpdateProfile}
+              onUpdateBackground={(bg) => setBackgroundSettings(bg)}
               onLogout={handleLogout}
               onShowToast={showToast}
-              onBackToCalendar={() => setActiveNav('calendar')}
+              onBackToCalendar={() => navigateTo('calendar')}
             />
           </div>
         ) : (
@@ -615,12 +865,18 @@ export default function App() {
             <TopBar
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
+              tasks={timeBlocks}
+              onSelectSearchTask={handleSelectSearchTask}
               theme={theme}
               onToggleTheme={toggleTheme}
               currentUser={currentUser}
-              onOpenAuthModal={() => setActiveNav('settings')}
+              onOpenAuthModal={() => navigateTo('settings')}
               workspaceName={activeWorkspace?.name || 'Không gian cá nhân'}
-              activeNavTitle={activeNav === 'tasks' ? 'Công việc' : activeNav === 'ai' ? 'Trợ lý AI' : 'Lịch của tôi'}
+              activeNavTitle={
+                activeNav === 'tasks' || activeNav === 'eisenhower' ? 'Công việc' :
+                activeNav === 'productivity' ? 'Báo cáo năng suất' :
+                'Lịch của tôi'
+              }
               onSelectTask={(taskId) => {
                 const task = timeBlocks.find((t) => t.id === taskId);
                 if (task) {
@@ -631,41 +887,49 @@ export default function App() {
               }}
             />
 
-            {/* Content Body: Calendar section OR Tasks View */}
-            <div className="content-body">
-              {activeNav === 'tasks' ? (
-                /* ── Full Task Management View (Tab "Công việc") ── */
-                <div style={{ flex: 1, overflowY: 'auto' }} className="view-transition-container">
+            {/* Content Body: Calendar section OR Tasks View OR Productivity */}
+            <div className="content-body" ref={contentBodyRef}>
+              {activeNav === 'tasks' || activeNav === 'eisenhower' ? (
+                /* ── Full Task Management & Eisenhower Matrix View (Tab "Công việc") ── */
+                <div key={activeNav} style={{ flex: 1, overflowY: 'auto' }} className="view-transition-container">
                   <TasksView
                     tasks={displayedBlocks}
                     categories={categories}
                     onAddTask={() => {
-                      setEditingBlock(null);
-                      setIsModalOpen(true);
+                      openTaskModal(null);
+                    }}
+                    onAddQuadrantTask={(quadrant) => {
+                      openTaskModal({
+                        title: '',
+                        categoryType: 'WORK',
+                        eisenhowerQuadrant: quadrant,
+                        priority: quadrant === 'DO_FIRST' ? 'URGENT' : quadrant === 'SCHEDULE' ? 'HIGH' : 'LOW',
+                      });
                     }}
                     onEditTask={handleSelectBlock}
                     onDeleteTask={handleDeleteTask}
                     onToggleStatus={handleToggleStatus}
+                    onShowToast={showToast}
+                    onReload={() => loadData(activeWorkspace?.id)}
+                  />
+                </div>
+              ) : activeNav === 'productivity' ? (
+                /* ── Productivity Dashboard & AI Coach View (Tab "Báo cáo năng suất") ── */
+                <div key={activeNav} style={{ flex: 1, overflowY: 'auto' }} className="view-transition-container">
+                  <ProductivityDashboard
+                    onShowToast={showToast}
+                    onNavigateToCalendar={() => navigateTo('calendar')}
                   />
                 </div>
               ) : (
-                /* ── Weekly / Monthly Calendar Section (Tab "Lịch của tôi" & "Trợ lý AI") ── */
-                <div className="calendar-section view-transition-container">
+                /* ── Weekly / Monthly Calendar Section (Tab "Lịch của tôi") ── */
+                <div key={activeNav} className="calendar-section view-transition-container">
                   {/* Hero Header with Add Task Button */}
-                  <div className="page-content" style={{ padding: '20px 0 0' }}>
-                    <HeroHeader
-                      userName={displayName}
-                      todayTasksCount={todayTasksCount}
-                      timeBlocks={timeBlocks}
-                      onAddTaskClick={() => {
-                        setEditingBlock(null);
-                        setIsModalOpen(true);
-                      }}
-                      onSelectTask={handleSelectBlock}
-                    />
-
-                    {/* Calendar Controls & Legend */}
+                  <div className="page-content" style={{ padding: '16px 0 0' }}>
                     <CalendarControls
+                      userName={displayName}
+                      timeBlocks={timeBlocks}
+                      onSelectTask={handleSelectBlock}
                       currentWeekText={currentWeekText}
                       viewMode={viewMode}
                       onViewModeChange={setViewMode}
@@ -679,6 +943,16 @@ export default function App() {
                       }}
                       statusFilter={statusFilter}
                       onStatusFilterChange={setStatusFilter}
+                      onAddTaskClick={() => {
+                        openTaskModal(null);
+                      }}
+                      onAutoScheduleClick={() => runViewTransition(() => setIsAutoScheduleModalOpen(true))}
+                      isPrivacyUnlocked={isPrivacyUnlocked || unlockedScheduleIds.size > 0}
+                      isGlobalPrivacyUnlocked={isPrivacyUnlocked}
+                      unlockedScheduleIds={unlockedScheduleIds}
+                      onUnlockSingle={handleUnlockSingleSchedule}
+                      onTogglePrivacyLock={handleTogglePrivacyLock}
+                      onUnlockSuccess={handleUnlockSuccess}
                     />
                   </div>
 
@@ -693,9 +967,25 @@ export default function App() {
                         statusFilter={statusFilter}
                         onSelectBlock={handleSelectBlock}
                         onAddAtDate={handleAddAtDate}
+                        onDeleteTask={handleDeleteTask}
+                        onToggleTaskStatus={handleToggleTaskStatus}
+                        onDuplicateTask={async (task) => {
+                          await taskService.createTask({ ...task, id: undefined, title: `${task.title} (bản sao)`, status: 'TODO', isLocked: false, workspaceId: activeWorkspace?.id || 1 });
+                          showToast('Đã nhân bản công việc!');
+                          await loadData(activeWorkspace?.id);
+                        }}
+                        onToggleTaskLock={async (id, locked) => {
+                          await taskService.updateTask(id, { isLocked: locked });
+                          await loadData(activeWorkspace?.id);
+                        }}
+                        isPrivacyUnlocked={isPrivacyUnlocked}
+                        unlockedScheduleIds={unlockedScheduleIds}
+                        onUnlockSingle={handleUnlockSingleSchedule}
+                        onUnlockSuccess={handleUnlockSuccess}
                       />
                     ) : (
                       <WeeklyCalendar
+                        focusedTaskId={focusedCalendarTaskId}
                         days={activeDays}
                         timeBlocks={displayedBlocks}
                         categories={categories}
@@ -704,21 +994,61 @@ export default function App() {
                         onSelectBlock={handleSelectBlock}
                         onAddAtSlot={handleAddAtSlot}
                         onRescheduleTask={handleRescheduleTask}
+                        onReload={() => loadData(activeWorkspace?.id)}
+                        onShowToast={showToast}
+                        onJumpToDate={(date) => setCurrentDate(date)}
+                        onDeleteTask={handleDeleteTask}
+                        onToggleTaskStatus={handleToggleTaskStatus}
+                        isPrivacyUnlocked={isPrivacyUnlocked}
+                        unlockedScheduleIds={unlockedScheduleIds}
+                        onUnlockSingle={handleUnlockSingleSchedule}
+                        onUnlockSuccess={handleUnlockSuccess}
+                        onTogglePrivacyLock={handleTogglePrivacyLock}
                       />
                     )}
                   </div>
 
-                  {/* Bottom 3 Stats Cards: accurately computed for active week */}
+                  {/* Thanh thống kê tuần: dẹp xuống mỏng gọn, thanh mảnh ở chân lịch */}
                   <StatsBar stats={computedWeekStats} />
+                </div>
+              )}
+
+              {/* ── Resizer Splitter Bar (Drag to resize AI Panel width up to 300px max) ── */}
+              {!isAiPanelCollapsed && (
+                <div
+                  className={`ai-panel-resizer ${isResizingAiPanel ? 'resizing' : ''}`}
+                  onMouseDown={handleMouseDownResize}
+                  onDoubleClick={() => {
+                    setAiPanelWidth(300);
+                    try {
+                      localStorage.setItem('smarttask_ai_panel_width', '300');
+                    } catch {}
+                    showToast('Đã đặt lại kích thước Trợ lý AI về 300px');
+                  }}
+                  title="Kéo sang phải để thu hẹp Trợ lý AI (Mặc định tối đa 300px, thu hẹp tối đa 180px, nhấp đúp để đặt lại 300px)"
+                >
+                  <div className="resizer-handle-pill" />
                 </div>
               )}
 
               {/* ── Right Panel: AI Assistant SmartTask ── */}
               <AIAssistantPanel
+                width={isAiPanelCollapsed ? 56 : aiPanelWidth}
+                isCollapsed={isAiPanelCollapsed}
+                onToggleCollapse={handleToggleAiPanelCollapse}
+                onResetWidth={() => {
+                  setAiPanelWidth(300);
+                  try {
+                    localStorage.setItem('smarttask_ai_panel_width', '300');
+                  } catch {}
+                  showToast('Đã đặt lại kích thước Trợ lý AI về 300px');
+                }}
                 currentDate={currentDate}
+                activeWorkspace={activeWorkspace}
+                onShowToast={showToast}
                 onScheduleTask={handleScheduleFromAI}
                 onEditTaskDetails={(info) => {
-                  setEditingBlock({
+                  openTaskModal({
                     id: info.id,
                     taskId: info.id,
                     title: info.title,
@@ -728,7 +1058,6 @@ export default function App() {
                     categoryType: info.categoryType || 'WORK',
                     status: 'TODO',
                   });
-                  setIsModalOpen(true);
                 }}
               />
             </div>
@@ -739,7 +1068,7 @@ export default function App() {
       {/* ── Add / Edit / Delete Task Modal ── */}
       <TaskModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={closeTaskModal}
         onSave={handleSaveTask}
         onDelete={handleDeleteTask}
         categories={categories}
@@ -749,10 +1078,19 @@ export default function App() {
       {/* ── Category Management Modal (Add / Edit / Delete) ── */}
       <CategoryModal
         isOpen={isCategoryModalOpen}
-        onClose={() => setIsCategoryModalOpen(false)}
+        onClose={closeCategoryModal}
         onSave={handleSaveCategory}
         onDelete={handleDeleteCategory}
         category={editingCategory}
+      />
+
+      {/* ── Auto Schedule Modal ── */}
+      <AutoScheduleModal
+        isOpen={isAutoScheduleModalOpen}
+        onClose={() => runViewTransition(() => setIsAutoScheduleModalOpen(false))}
+        workspaceId={activeWorkspace?.id || 1}
+        onApplied={() => loadData(activeWorkspace?.id)}
+        onShowToast={showToast}
       />
 
       {/* ── Floating Toast Notification ── */}
@@ -773,7 +1111,7 @@ export default function App() {
             display: 'flex',
             alignItems: 'center',
             gap: 10,
-            animation: 'slideUpToast 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
+            animation: `${isToastClosing ? 'slideOutToastLeft' : 'slideInToastLeft'} 0.26s cubic-bezier(0.2, 0.75, 0.25, 1) both`,
             border: '1px solid rgba(255,255,255,0.1)',
           }}
         >

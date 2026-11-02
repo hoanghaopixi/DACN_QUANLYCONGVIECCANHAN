@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import {
-  Lock, Mail, User, Eye, EyeOff, ShieldCheck,
+  Lock, Mail, User, Eye, EyeOff,
   Sparkles, CheckCircle2, ArrowRight, Sun, Moon
 } from 'lucide-react';
 import { authService, AuthResponse } from '../services/authService';
+import { validateLoginForm, validateRegisterForm, formatAuthErrorMessage } from '../utils/authValidation';
 
 interface AuthPageProps {
   onLoginSuccess: (user: AuthResponse) => void;
@@ -19,20 +20,40 @@ export default function AuthPage({ onLoginSuccess, theme, onToggleTheme }: AuthP
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorField, setErrorField] = useState<'email' | 'password' | 'fullName' | 'confirmPassword' | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Quick fill Admin account for instant testing
-  const handleQuickFillAdmin = () => {
-    setEmail('admin@gmail.com');
-    setPassword('1');
+  const switchMode = (newMode: 'login' | 'register') => {
+    setMode(newMode);
     setErrorMessage(null);
+    setErrorField(null);
+    setSuccessMessage(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setErrorField(null);
     setSuccessMessage(null);
+
+    // Kiểm tra định dạng & regex trước khi gửi yêu cầu lên máy chủ
+    if (mode === 'login') {
+      const validation = validateLoginForm(email, password);
+      if (!validation.isValid) {
+        setErrorMessage(validation.message || 'Thông tin đăng nhập không hợp lệ.');
+        setErrorField(validation.field || null);
+        return;
+      }
+    } else {
+      const validation = validateRegisterForm(fullName, email, password, confirmPassword);
+      if (!validation.isValid) {
+        setErrorMessage(validation.message || 'Thông tin đăng ký không hợp lệ.');
+        setErrorField(validation.field || null);
+        return;
+      }
+    }
+
     setIsLoading(true);
 
     try {
@@ -47,18 +68,6 @@ export default function AuthPage({ onLoginSuccess, theme, onToggleTheme }: AuthP
           onLoginSuccess(response);
         }, 500);
       } else {
-        // Mode: Register
-        if (password !== confirmPassword) {
-          setErrorMessage('Mật khẩu xác nhận không trùng khớp.');
-          setIsLoading(false);
-          return;
-        }
-        if (!fullName.trim()) {
-          setErrorMessage('Vui lòng nhập họ và tên của bạn.');
-          setIsLoading(false);
-          return;
-        }
-
         const response = await authService.register({
           fullName: fullName.trim(),
           email: email.trim(),
@@ -71,8 +80,14 @@ export default function AuthPage({ onLoginSuccess, theme, onToggleTheme }: AuthP
         }, 700);
       }
     } catch (err: any) {
-      const msg = err.response?.data?.message || err.message || 'Lỗi kết nối máy chủ';
+      const msg = formatAuthErrorMessage(err);
       setErrorMessage(msg);
+
+      if (err.response?.status === 401) {
+        setErrorField('password');
+      } else if (err.response?.status === 404 || err.response?.status === 409) {
+        setErrorField('email');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -233,7 +248,7 @@ export default function AuthPage({ onLoginSuccess, theme, onToggleTheme }: AuthP
             </div>
 
             <p style={{ fontSize: '0.95rem', color: 'var(--text-3)', lineHeight: 1.6, margin: 0 }}>
-              Chừa chỗ cho điều quan trọng. Trợ lý AI tự động phân tích thời gian biểu, tìm kiếm khung giờ trống tối ưu và đồng bộ độc lập cho từng không gian làm việc của bạn.
+              Trợ lý AI tự động phân tích thời gian biểu, tìm kiếm khung giờ trống tối ưu và đồng bộ độc lập cho từng không gian làm việc của bạn.
             </p>
 
             {/* Feature Bullets */}
@@ -245,10 +260,6 @@ export default function AuthPage({ onLoginSuccess, theme, onToggleTheme }: AuthP
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.88rem', color: 'var(--text-2)' }}>
                 <CheckCircle2 size={18} color="#10B981" />
                 <span>Kéo thả dời giờ thông minh và cảnh báo xung đột lịch trình</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.88rem', color: 'var(--text-2)' }}>
-                <CheckCircle2 size={18} color="#10B981" />
-                <span>Bảo mật dữ liệu tối đa với mật khẩu mã hóa BCrypt & SHA-256</span>
               </div>
             </div>
           </div>
@@ -277,11 +288,7 @@ export default function AuthPage({ onLoginSuccess, theme, onToggleTheme }: AuthP
             >
               <button
                 type="button"
-                onClick={() => {
-                  setMode('login');
-                  setErrorMessage(null);
-                  setSuccessMessage(null);
-                }}
+                onClick={() => switchMode('login')}
                 style={{
                   padding: '9px 12px',
                   borderRadius: 8,
@@ -300,11 +307,7 @@ export default function AuthPage({ onLoginSuccess, theme, onToggleTheme }: AuthP
 
               <button
                 type="button"
-                onClick={() => {
-                  setMode('register');
-                  setErrorMessage(null);
-                  setSuccessMessage(null);
-                }}
+                onClick={() => switchMode('register')}
                 style={{
                   padding: '9px 12px',
                   borderRadius: 8,
@@ -326,18 +329,18 @@ export default function AuthPage({ onLoginSuccess, theme, onToggleTheme }: AuthP
             {errorMessage && (
               <div
                 style={{
-                  background: '#FEE2E2',
-                  border: '1px solid #FECACA',
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  border: '1px solid rgba(239, 68, 68, 0.35)',
                   color: '#DC2626',
                   borderRadius: 10,
-                  padding: '10px 14px',
-                  fontSize: '0.82rem',
+                  padding: '11px 14px',
+                  fontSize: '0.84rem',
                   marginBottom: 16,
                   fontWeight: 600,
                   lineHeight: 1.45,
                 }}
               >
-                ⚠️ {errorMessage}
+                {errorMessage}
               </div>
             )}
 
@@ -355,7 +358,7 @@ export default function AuthPage({ onLoginSuccess, theme, onToggleTheme }: AuthP
                   lineHeight: 1.45,
                 }}
               >
-                ✓ {successMessage}
+                {successMessage}
               </div>
             )}
 
@@ -385,16 +388,22 @@ export default function AuthPage({ onLoginSuccess, theme, onToggleTheme }: AuthP
                       required
                       placeholder="VD: Nguyễn Văn A"
                       value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
+                      onChange={(e) => {
+                        setFullName(e.target.value);
+                        if (errorMessage) setErrorMessage(null);
+                        if (errorField === 'fullName') setErrorField(null);
+                      }}
                       style={{
                         width: '100%',
                         padding: '10px 12px 10px 38px',
                         borderRadius: 10,
-                        border: '1px solid var(--border)',
+                        border: errorField === 'fullName' ? '1.5px solid #EF4444' : '1px solid var(--border)',
+                        boxShadow: errorField === 'fullName' ? '0 0 0 3px rgba(239, 68, 68, 0.15)' : 'none',
                         background: 'var(--surface)',
                         color: 'var(--text)',
                         fontSize: '0.88rem',
                         outline: 'none',
+                        transition: 'all 0.2s ease',
                       }}
                     />
                   </div>
@@ -412,7 +421,7 @@ export default function AuthPage({ onLoginSuccess, theme, onToggleTheme }: AuthP
                     marginBottom: 6,
                   }}
                 >
-                  {mode === 'login' ? 'Email / Tên tài khoản *' : 'Địa chỉ Email *'}
+                  {mode === 'login' ? 'Email tài khoản *' : 'Địa chỉ Email *'}
                 </label>
                 <div style={{ position: 'relative' }}>
                   <Mail
@@ -422,18 +431,24 @@ export default function AuthPage({ onLoginSuccess, theme, onToggleTheme }: AuthP
                   <input
                     type="email"
                     required
-                    placeholder="VD: admin@gmail.com"
+                    placeholder="Nhập tài khoản..."
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      if (errorMessage) setErrorMessage(null);
+                      if (errorField === 'email') setErrorField(null);
+                    }}
                     style={{
                       width: '100%',
                       padding: '10px 12px 10px 38px',
                       borderRadius: 10,
-                      border: '1px solid var(--border)',
+                      border: errorField === 'email' ? '1.5px solid #EF4444' : '1px solid var(--border)',
+                      boxShadow: errorField === 'email' ? '0 0 0 3px rgba(239, 68, 68, 0.15)' : 'none',
                       background: 'var(--surface)',
                       color: 'var(--text)',
                       fontSize: '0.88rem',
                       outline: 'none',
+                      transition: 'all 0.2s ease',
                     }}
                   />
                 </div>
@@ -459,18 +474,24 @@ export default function AuthPage({ onLoginSuccess, theme, onToggleTheme }: AuthP
                   <input
                     type={showPassword ? 'text' : 'password'}
                     required
-                    placeholder="Nhập mật khẩu..."
+                    placeholder={mode === 'login' ? 'Nhập mật khẩu...' : 'Tạo mật khẩu...'}
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (errorMessage) setErrorMessage(null);
+                      if (errorField === 'password') setErrorField(null);
+                    }}
                     style={{
                       width: '100%',
                       padding: '10px 38px 10px 38px',
                       borderRadius: 10,
-                      border: '1px solid var(--border)',
+                      border: errorField === 'password' ? '1.5px solid #EF4444' : '1px solid var(--border)',
+                      boxShadow: errorField === 'password' ? '0 0 0 3px rgba(239, 68, 68, 0.15)' : 'none',
                       background: 'var(--surface)',
                       color: 'var(--text)',
                       fontSize: '0.88rem',
                       outline: 'none',
+                      transition: 'all 0.2s ease',
                     }}
                   />
                   <button
@@ -516,60 +537,29 @@ export default function AuthPage({ onLoginSuccess, theme, onToggleTheme }: AuthP
                       required
                       placeholder="Nhập lại mật khẩu để xác nhận..."
                       value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      onChange={(e) => {
+                        setConfirmPassword(e.target.value);
+                        if (errorMessage) setErrorMessage(null);
+                        if (errorField === 'confirmPassword') setErrorField(null);
+                      }}
                       style={{
                         width: '100%',
                         padding: '10px 12px 10px 38px',
                         borderRadius: 10,
-                        border: '1px solid var(--border)',
+                        border: errorField === 'confirmPassword' ? '1.5px solid #EF4444' : '1px solid var(--border)',
+                        boxShadow: errorField === 'confirmPassword' ? '0 0 0 3px rgba(239, 68, 68, 0.15)' : 'none',
                         background: 'var(--surface)',
                         color: 'var(--text)',
                         fontSize: '0.88rem',
                         outline: 'none',
+                        transition: 'all 0.2s ease',
                       }}
                     />
                   </div>
                 </div>
               )}
 
-              {/* Quick Fill Admin Helper */}
-              {mode === 'login' && (
-                <div
-                  onClick={handleQuickFillAdmin}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '8px 12px',
-                    borderRadius: 8,
-                    background: 'var(--border-light)',
-                    border: '1px dashed var(--primary)',
-                    cursor: 'pointer',
-                    fontSize: '0.78rem',
-                    color: 'var(--primary)',
-                    fontWeight: 600,
-                    transition: 'all 0.15s ease',
-                  }}
-                  title="Nhấp để tự động điền tài khoản Quản trị viên"
-                >
-                  <span>⚡ Điền nhanh tài khoản: admin@gmail.com (pass 1)</span>
-                  <span style={{ fontSize: '0.72rem', textDecoration: 'underline' }}>Điền ngay</span>
-                </div>
-              )}
 
-              {/* Security Note */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  fontSize: '0.74rem',
-                  color: 'var(--text-muted)',
-                }}
-              >
-                <ShieldCheck size={14} color="#10B981" />
-                <span>Mật khẩu được mã hóa an toàn bằng thuật toán BCrypt trong CSDL.</span>
-              </div>
 
               {/* Submit Button */}
               <button
@@ -605,10 +595,7 @@ export default function AuthPage({ onLoginSuccess, theme, onToggleTheme }: AuthP
                 <>
                   Chưa có tài khoản SmartTask?{' '}
                   <span
-                    onClick={() => {
-                      setMode('register');
-                      setErrorMessage(null);
-                    }}
+                    onClick={() => switchMode('register')}
                     style={{ color: 'var(--primary)', fontWeight: 700, cursor: 'pointer' }}
                   >
                     Đăng ký miễn phí
@@ -618,10 +605,7 @@ export default function AuthPage({ onLoginSuccess, theme, onToggleTheme }: AuthP
                 <>
                   Đã có tài khoản SmartTask?{' '}
                   <span
-                    onClick={() => {
-                      setMode('login');
-                      setErrorMessage(null);
-                    }}
+                    onClick={() => switchMode('login')}
                     style={{ color: 'var(--primary)', fontWeight: 700, cursor: 'pointer' }}
                   >
                     Đăng nhập ngay

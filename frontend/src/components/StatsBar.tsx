@@ -11,43 +11,54 @@ export default function StatsBar({ stats }: StatsBarProps) {
     : Number(stats.focusHours.toFixed(1));
 
   return (
-    <div className="stats-bar">
-      <div className="stat-card" title="Số lượng công việc trong tuần được chọn">
-        <div className="stat-icon stat-icon-purple">
-          <CheckSquare size={20} />
+    <div className="stats-bar-slim" role="region" aria-label="Thống kê tuần">
+      {/* Thẻ 1: Công việc tuần này */}
+      <div className="stat-card-slim" title="Số lượng công việc trong tuần được chọn">
+        <div className="stat-icon-slim stat-icon-purple">
+          <CheckSquare size={16} />
         </div>
-        <div className="stat-content">
-          <span className="stat-label">Công việc tuần này</span>
-          <span className="stat-value">{stats.totalTasksThisWeek}</span>
-          <span className="stat-sub">
-            {stats.totalTasksThisWeek > 0
-              ? `${stats.completedTasks} đã hoàn thành`
-              : 'Chưa có công việc'}
-          </span>
-        </div>
-      </div>
-
-      <div className="stat-card" title="Tổng thời gian học tập & công việc được lên lịch trong tuần này">
-        <div className="stat-icon stat-icon-blue">
-          <Clock size={20} />
-        </div>
-        <div className="stat-content">
-          <span className="stat-label">Thời gian tập trung</span>
-          <span className="stat-value">{formattedHours} giờ</span>
-          <span className="stat-sub">{stats.focusLabel || 'Chưa có lịch tuần này'}</span>
+        <div className="stat-content-slim">
+          <span className="stat-label-slim">Công việc tuần này</span>
+          <div className="stat-val-row-slim">
+            <span className="stat-value-slim">{stats.totalTasksThisWeek}</span>
+            <span className="stat-sub-slim">
+              {stats.totalTasksThisWeek > 0
+                ? `(${stats.completedTasks} đã hoàn thành)`
+                : '(Chưa có việc)'}
+            </span>
+          </div>
         </div>
       </div>
 
-      <div className="stat-card" title="Khoảng thời gian trống phù hợp trong khung giờ làm việc">
-        <div className="stat-icon stat-icon-green">
-          <Sparkles size={20} />
+      {/* Thẻ 2: Thời gian tập trung */}
+      <div className="stat-card-slim" title="Tổng thời gian học tập & công việc được lên lịch trong tuần">
+        <div className="stat-icon-slim stat-icon-blue">
+          <Clock size={16} />
         </div>
-        <div className="stat-content">
-          <span className="stat-label">Khoảng trống phù hợp</span>
-          <span className="stat-value">{stats.freeSlots}</span>
-          <span className="stat-sub">
-            {stats.freeSlots > 0 ? 'Sẵn sàng để AI xếp' : 'Lịch tuần đã kín'}
-          </span>
+        <div className="stat-content-slim">
+          <span className="stat-label-slim">Thời gian tập trung</span>
+          <div className="stat-val-row-slim">
+            <span className="stat-value-slim">{formattedHours} giờ</span>
+            <span className="stat-sub-slim stat-sub-truncate" title={stats.focusLabel}>
+              {stats.focusLabel ? `(${stats.focusLabel})` : ''}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Thẻ 3: Khoảng trống phù hợp */}
+      <div className="stat-card-slim" title="Khoảng thời gian trống phù hợp sẵn sàng để AI xếp lịch">
+        <div className="stat-icon-slim stat-icon-green">
+          <Sparkles size={16} />
+        </div>
+        <div className="stat-content-slim">
+          <span className="stat-label-slim">Khoảng trống phù hợp</span>
+          <div className="stat-val-row-slim">
+            <span className="stat-value-slim">{stats.freeSlots}</span>
+            <span className="stat-sub-slim">
+              {stats.freeSlots > 0 ? '(Sẵn sàng để AI xếp)' : '(Lịch đã kín)'}
+            </span>
+          </div>
         </div>
       </div>
     </div>

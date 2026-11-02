@@ -196,7 +196,7 @@ export default function CategoryModal({
                 marginBottom: 16,
               }}
             >
-              ⚠️ Lưu ý: Hệ thống không cho phép xóa nhóm nếu đang có công việc sử dụng nhóm này.
+              Lưu ý: Hệ thống không cho phép xóa nhóm nếu đang có công việc sử dụng nhóm này.
             </div>
 
             {deleteError && (

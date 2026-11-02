@@ -47,6 +47,10 @@ public class TimeBlock {
     @Column(name = "\"GhiChu\"", columnDefinition = "TEXT")
     private String note;
 
+    @Column(name = "\"KhoaRiengTu\"")
+    @Builder.Default
+    private Boolean isLocked = false;
+
     @Column(name = "\"NgayTao\"")
     @Builder.Default
     private OffsetDateTime createdAt = OffsetDateTime.now();

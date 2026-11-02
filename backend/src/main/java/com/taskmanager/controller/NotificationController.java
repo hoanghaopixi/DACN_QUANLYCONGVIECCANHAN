@@ -25,18 +25,18 @@ public class NotificationController {
     private final UserResolver userResolver;
 
     /**
-     * Lấy danh sách toàn bộ thông báo từ CSDL của người dùng hiện tại
-     * Tự động kích hoạt Thuật toán Quyết định Thông báo phân tích công việc & lịch trình thực tế
+     * Lấy danh sách toàn bộ thông báo còn hiệu lực (chưa bị xóa) của người dùng hiện tại
+     * Thao tác GET là idempotent, chỉ đọc dữ liệu từ CSDL, không gây side-effect tạo lại thông báo
      */
     @GetMapping
     public ResponseEntity<List<Notification>> getNotifications(HttpServletRequest request) {
         Long userId = userResolver.resolveUserId(request);
-        List<Notification> list = notificationDecisionService.evaluateAndGenerateNotifications(userId);
+        List<Notification> list = notificationRepository.findActiveByUserId(userId);
         return ResponseEntity.ok(list);
     }
 
     /**
-     * Kích hoạt chạy thuật toán quyết định thông báo thủ công
+     * Kích hoạt chạy thuật toán quyết định thông báo chủ động
      */
     @PostMapping("/evaluate")
     public ResponseEntity<List<Notification>> evaluateNotifications(HttpServletRequest request) {
@@ -46,18 +46,18 @@ public class NotificationController {
     }
 
     /**
-     * Lấy số lượng thông báo chưa đọc từ CSDL
+     * Lấy số lượng thông báo chưa đọc từ CSDL (Chỉ đếm các thông báo chưa đọc và chưa bị xóa)
+     * Thao tác đọc an toàn cho chu kỳ polling của giao diện
      */
     @GetMapping("/unread-count")
     public ResponseEntity<Map<String, Object>> getUnreadCount(HttpServletRequest request) {
         Long userId = userResolver.resolveUserId(request);
-        notificationDecisionService.evaluateAndGenerateNotifications(userId);
-        long count = notificationRepository.countByUserIdAndIsReadFalse(userId);
+        long count = notificationRepository.countUnreadActiveByUserId(userId);
         return ResponseEntity.ok(Map.of("unreadCount", count));
     }
 
     /**
-     * Cập nhật trạng thái đã đọc cho một thông báo cụ thể trong CSDL
+     * Cập nhật trạng thái đã đọc cho một thông báo cụ thể
      */
     @PutMapping("/{id}/read")
     public ResponseEntity<?> markAsRead(@PathVariable Long id, HttpServletRequest request) {
@@ -73,18 +73,18 @@ public class NotificationController {
     }
 
     /**
-     * Đánh dấu toàn bộ thông báo của người dùng là đã đọc trong CSDL
+     * Đánh dấu toàn bộ thông báo chưa đọc của người dùng là đã đọc trong CSDL
      */
     @PutMapping("/read-all")
     @Transactional
     public ResponseEntity<?> markAllAsRead(HttpServletRequest request) {
         Long userId = userResolver.resolveUserId(request);
         notificationRepository.markAllAsReadByUserId(userId);
-        return ResponseEntity.ok(Map.of("success", true, "message", "Đã đánh dấu tất cả thông báo là đã đọc trong CSDL"));
+        return ResponseEntity.ok(Map.of("success", true, "message", "Đã đánh dấu tất cả thông báo là đã đọc"));
     }
 
     /**
-     * Xóa một thông báo khỏi CSDL
+     * Xóa một thông báo (Soft-delete để lưu vết khử trùng lặp, không bị đổ lại khi engine chạy)
      */
     @DeleteMapping("/{id}")
     @Transactional
@@ -92,21 +92,24 @@ public class NotificationController {
         Long userId = userResolver.resolveUserId(request);
         return notificationRepository.findByIdAndUserId(id, userId)
                 .map(n -> {
-                    notificationRepository.delete(n);
-                    return ResponseEntity.ok(Map.of("success", true, "message", "Đã xóa thông báo khỏi CSDL"));
+                    n.setIsDeleted(true);
+                    n.setIsRead(true);
+                    n.setUpdatedAt(OffsetDateTime.now());
+                    notificationRepository.save(n);
+                    return ResponseEntity.ok(Map.of("success", true, "message", "Đã xóa thông báo thành công"));
                 })
                 .orElse(ResponseEntity.notFound().build());
     }
 
     /**
-     * Xóa toàn bộ thông báo của người dùng khỏi CSDL
+     * Xóa toàn bộ thông báo của người dùng (Đánh dấu đã xóa toàn bộ)
      */
     @DeleteMapping("/clear-all")
     @Transactional
     public ResponseEntity<?> clearAllNotifications(HttpServletRequest request) {
         Long userId = userResolver.resolveUserId(request);
-        notificationRepository.deleteByUserId(userId);
-        return ResponseEntity.ok(Map.of("success", true, "message", "Đã xóa toàn bộ thông báo khỏi CSDL"));
+        notificationRepository.clearAllByUserId(userId);
+        return ResponseEntity.ok(Map.of("success", true, "message", "Đã xóa toàn bộ thông báo thành công"));
     }
 
     /**
@@ -127,6 +130,7 @@ public class NotificationController {
                 .message(message)
                 .type(type)
                 .isRead(false)
+                .isDeleted(false)
                 .createdAt(OffsetDateTime.now())
                 .updatedAt(OffsetDateTime.now())
                 .build();

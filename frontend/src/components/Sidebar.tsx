@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  Calendar, CheckSquare, Sparkles, Settings, ChevronDown, ChevronsUpDown,
-  LogOut, UserCircle, Plus, Pencil, Trash2, Check, X
+  Calendar, CheckSquare, Settings, ChevronDown, ChevronsUpDown,
+  LogOut, UserCircle, Plus, Pencil, Trash2, Check, X,
+  BarChart3, PanelLeftClose, PanelLeftOpen, Home, Layers
 } from 'lucide-react';
 import { Category } from '../types';
 import { workspaceService, WorkspaceItem } from '../services/workspaceService';
@@ -17,7 +18,7 @@ interface SidebarProps {
   onAddCategory: () => void;
   onEditCategory: (cat: Category) => void;
   onDeleteCategory: (id: number) => void;
-  currentUser: { email: string; fullName: string; role: string } | null;
+  currentUser: { email: string; fullName: string; role: string; avatarUrl?: string } | null;
   onOpenAuthModal: () => void;
   onOpenSettingsModal: () => void;
   onLogout: () => void;
@@ -44,13 +45,79 @@ export default function Sidebar({
   onWorkspaceChange,
   onShowToast,
 }: SidebarProps) {
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('smarttask_sidebar_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleCollapse = () => {
+    setIsCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('smarttask_sidebar_collapsed', String(next));
+      } catch {}
+      return next;
+    });
+  };
+
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
+  const [showCategoryMenu, setShowCategoryMenu] = useState(false);
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([]);
+  const [editingWsId, setEditingWsId] = useState<number | null>(null);
+  const [editingWsText, setEditingWsText] = useState('');
+  const [isAddingWs, setIsAddingWs] = useState(false);
+  const [newWsText, setNewWsText] = useState('');
+
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const workspaceMenuRef = useRef<HTMLDivElement>(null);
+  const categoryMenuRef = useRef<HTMLDivElement>(null);
 
-  // Close profile & workspace dropdown when clicking outside
+  const wsTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const catTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const profileTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleWsMouseEnter = () => {
+    if (wsTimerRef.current) clearTimeout(wsTimerRef.current);
+    setShowWorkspaceMenu(true);
+  };
+  const handleWsMouseLeave = () => {
+    if (wsTimerRef.current) clearTimeout(wsTimerRef.current);
+    wsTimerRef.current = setTimeout(() => {
+      if (!isAddingWs && editingWsId === null) {
+        setShowWorkspaceMenu(false);
+      }
+    }, 220);
+  };
+
+  const handleCatMouseEnter = () => {
+    if (catTimerRef.current) clearTimeout(catTimerRef.current);
+    if (isCollapsed) {
+      setShowCategoryMenu(true);
+    }
+  };
+  const handleCatMouseLeave = () => {
+    if (catTimerRef.current) clearTimeout(catTimerRef.current);
+    catTimerRef.current = setTimeout(() => {
+      setShowCategoryMenu(false);
+    }, 220);
+  };
+
+  const handleProfileMouseEnter = () => {
+    if (profileTimerRef.current) clearTimeout(profileTimerRef.current);
+    setShowProfileMenu(true);
+  };
+  const handleProfileMouseLeave = () => {
+    if (profileTimerRef.current) clearTimeout(profileTimerRef.current);
+    profileTimerRef.current = setTimeout(() => {
+      setShowProfileMenu(false);
+    }, 220);
+  };
+
+  // Close profile, workspace & category dropdown when clicking outside
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
       if (profileMenuRef.current && !profileMenuRef.current.contains(event.target as Node)) {
@@ -60,14 +127,17 @@ export default function Sidebar({
         setShowWorkspaceMenu(false);
         setIsAddingWs(false);
       }
+      if (categoryMenuRef.current && !categoryMenuRef.current.contains(event.target as Node)) {
+        setShowCategoryMenu(false);
+      }
     };
-    if (showProfileMenu || showWorkspaceMenu) {
+    if (showProfileMenu || showWorkspaceMenu || showCategoryMenu) {
       document.addEventListener('mousedown', handleOutsideClick);
     }
     return () => {
       document.removeEventListener('mousedown', handleOutsideClick);
     };
-  }, [showProfileMenu, showWorkspaceMenu]);
+  }, [showProfileMenu, showWorkspaceMenu, showCategoryMenu]);
 
   const loadWorkspaces = async () => {
     try {
@@ -89,10 +159,7 @@ export default function Sidebar({
     loadWorkspaces();
   }, [currentUser]);
 
-  const [editingWsId, setEditingWsId] = useState<number | null>(null);
-  const [editingWsText, setEditingWsText] = useState('');
-  const [isAddingWs, setIsAddingWs] = useState(false);
-  const [newWsText, setNewWsText] = useState('');
+
 
   const handleStartEditWs = (ws: WorkspaceItem, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -185,95 +252,98 @@ export default function Sidebar({
   };
 
   return (
-    <aside className="sidebar">
-      {/* ── Brand Logo ── */}
+    <aside className={`sidebar ${isCollapsed ? 'collapsed' : ''}`}>
+      {/* ── Brand Logo & Collapse Toggle Button ── */}
       <div className="sidebar-logo">
-        <div className="logo-icon-svg">
-          {/* Sound wave icon matching SmartTask brand */}
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-            <rect width="24" height="24" rx="7" fill="#6C5CE7" />
-            <path d="M7 10V14M10 7V17M14 5V19M17 10V14" stroke="white" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-        </div>
-        <span className="logo-text">SmartTask</span>
+        {isCollapsed ? (
+          <button
+            type="button"
+            className="sidebar-collapse-toggle-btn collapsed"
+            onClick={handleToggleCollapse}
+            title="Mở rộng thanh bên (Click để mở)"
+            aria-label="Mở rộng thanh bên"
+          >
+            <PanelLeftOpen size={20} />
+          </button>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div className="logo-icon-svg">
+                {/* Sound wave icon matching SmartTask brand */}
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                  <rect width="24" height="24" rx="7" fill="var(--primary)" />
+                  <path d="M7 10V14M10 7V17M14 5V19M17 10V14" stroke="var(--on-primary)" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </div>
+              <span className="logo-text">SmartTask</span>
+            </div>
+            <button
+              type="button"
+              className="sidebar-collapse-toggle-btn"
+              onClick={handleToggleCollapse}
+              title="Thu gọn thanh bên"
+              aria-label="Thu gọn thanh bên"
+            >
+              <PanelLeftClose size={18} />
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* ── Workspace Selector with Add, Edit, Delete ── */}
-      <div style={{ position: 'relative', marginBottom: 8 }} ref={workspaceMenuRef}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <button
-            type="button"
-            className={`workspace-selector ${showWorkspaceMenu ? 'active' : ''}`}
-            title="Chọn không gian làm việc"
-            onClick={() => setShowWorkspaceMenu(!showWorkspaceMenu)}
-            style={{
-              flex: 1,
-              margin: 0,
-              height: 36,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '0 12px',
-              borderRadius: 8,
-              border: showWorkspaceMenu ? '1px solid var(--primary)' : '1px solid var(--border)',
-              background: showWorkspaceMenu ? 'var(--primary-bg)' : 'var(--border-light)',
-              cursor: 'pointer',
-              transition: 'all 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
-            }}
-          >
-            <span
-              style={{
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                fontWeight: 600,
-                fontSize: '0.84rem',
-                color: showWorkspaceMenu ? 'var(--primary)' : 'var(--text)',
-              }}
+      {/* ── Workspace Selector with Add, Edit, Delete (Home icon when collapsed) ── */}
+      <div
+        className="workspace-hover-container"
+        style={{ position: 'relative', marginBottom: 10, width: '100%' }}
+        ref={workspaceMenuRef}
+        onMouseEnter={handleWsMouseEnter}
+        onMouseLeave={handleWsMouseLeave}
+      >
+        {isCollapsed ? (
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <button
+              type="button"
+              className={`workspace-collapsed-btn ${showWorkspaceMenu ? 'active' : ''}`}
+              title={`Không gian làm việc: ${activeWorkspace?.name || 'Không gian cá nhân'}`}
+              onClick={() => setShowWorkspaceMenu(!showWorkspaceMenu)}
+              onMouseEnter={handleWsMouseEnter}
             >
-              {activeWorkspace?.name || 'Không gian cá nhân'}
-            </span>
-            <ChevronsUpDown
-              size={15}
-              style={{
-                color: showWorkspaceMenu ? 'var(--primary)' : '#94A3B8',
-                flexShrink: 0,
-                transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.2s ease',
-                transform: showWorkspaceMenu ? 'rotate(180deg)' : 'none',
-              }}
-            />
-          </button>
+              <Home size={20} />
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button
+              type="button"
+              className={`workspace-selector ${showWorkspaceMenu ? 'active' : ''}`}
+              title="Chọn không gian làm việc"
+              onClick={() => setShowWorkspaceMenu(!showWorkspaceMenu)}
+              onMouseEnter={handleWsMouseEnter}
+            >
+              <span className="workspace-selector-name">
+                {activeWorkspace?.name || 'Không gian cá nhân'}
+              </span>
+              <ChevronsUpDown
+                size={15}
+                className="workspace-selector-chevron"
+              />
+            </button>
 
-          <button
-            type="button"
-            className="add-category-btn"
-            onClick={() => {
-              setShowWorkspaceMenu(true);
-              setIsAddingWs(true);
-            }}
-            title="Thêm không gian làm việc mới"
-            style={{
-              width: 36,
-              height: 36,
-              flexShrink: 0,
-              borderRadius: 8,
-              border: '1px solid var(--border)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--text-muted)',
-              cursor: 'pointer',
-              background: 'var(--surface)',
-              transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-            }}
-          >
-            <Plus size={16} />
-          </button>
-        </div>
+            <button
+              type="button"
+              className="add-category-btn"
+              onClick={() => {
+                setShowWorkspaceMenu(true);
+                setIsAddingWs(true);
+              }}
+              title="Thêm không gian làm việc mới"
+            >
+              <Plus size={16} />
+            </button>
+          </div>
+        )}
 
         {/* Workspace Dropdown with Rename & Delete */}
-        {showWorkspaceMenu && (
-          <div className="workspace-dropdown-menu">
+        <div className={`workspace-dropdown-menu ${showWorkspaceMenu ? 'open' : ''}`}>
             <div
               style={{
                 display: 'flex',
@@ -521,7 +591,6 @@ export default function Sidebar({
               </form>
             )}
           </div>
-        )}
       </div>
 
       {/* ── Navigation ── */}
@@ -529,6 +598,7 @@ export default function Sidebar({
         <button
           className={`nav-item ${activeNav === 'calendar' ? 'active' : ''}`}
           onClick={() => onNavChange('calendar')}
+          title="Lịch của tôi"
         >
           <Calendar size={18} />
           <span>Lịch của tôi</span>
@@ -537,126 +607,253 @@ export default function Sidebar({
         <button
           className={`nav-item ${activeNav === 'tasks' ? 'active' : ''}`}
           onClick={() => onNavChange('tasks')}
+          title="Công việc"
         >
           <CheckSquare size={18} />
           <span>Công việc</span>
         </button>
 
         <button
-          className={`nav-item ${activeNav === 'ai' ? 'active' : ''}`}
-          onClick={() => onNavChange('ai')}
+          className={`nav-item ${activeNav === 'productivity' ? 'active' : ''}`}
+          onClick={() => onNavChange('productivity')}
+          title="Báo cáo năng suất"
         >
-          <Sparkles size={18} />
-          <span>Trợ lý AI</span>
-          <span className="nav-dot" style={{ background: '#6C5CE7' }} />
+          <BarChart3 size={18} />
+          <span>Báo cáo năng suất</span>
         </button>
       </nav>
 
-      {/* ── Categories Section (NHÓM CỦA TÔI) with Add, Edit, Delete ── */}
-      <div className="sidebar-section">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingRight: 4 }}>
-          <h3 className="section-label" style={{ margin: 0 }}>NHÓM CỦA TÔI</h3>
+      {/* ── Categories Section (NHÓM CỦA TÔI) ── */}
+      {isCollapsed ? (
+        <div
+          className="category-hover-container"
+          style={{ position: 'relative', width: '100%', marginBottom: 16, display: 'flex', justifyContent: 'center' }}
+          ref={categoryMenuRef}
+          onMouseEnter={handleCatMouseEnter}
+          onMouseLeave={handleCatMouseLeave}
+        >
           <button
             type="button"
-            className="add-category-btn"
-            onClick={onAddCategory}
-            title="Thêm nhóm công việc mới"
+            className={`category-collapsed-btn ${showCategoryMenu ? 'active' : ''}`}
+            onClick={() => setShowCategoryMenu(!showCategoryMenu)}
+            onMouseEnter={handleCatMouseEnter}
+            title={selectedCategory ? `Nhóm của tôi (Đang lọc: ${selectedCategory})` : 'Nhóm của tôi'}
           >
-            <Plus size={14} />
+            <Layers size={20} />
+            {selectedCategory && (
+              <span
+                className="category-active-dot"
+                style={{
+                  background: categories.find((c) => c.name === selectedCategory)?.colorCode || 'var(--primary)',
+                }}
+              />
+            )}
           </button>
-        </div>
 
-        <div className="category-list">
-          {categories.map((cat) => {
-            const isSelected = selectedCategory === cat.name;
-            return (
-              <div
-                key={cat.id}
-                className={`category-item ${isSelected ? 'selected' : ''}`}
-                onClick={() => onSelectCategory(isSelected ? null : cat.name)}
-                style={{ position: 'relative' }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-                  <span className="category-dot" style={{ background: cat.colorCode }} />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {cat.name}
+          {/* Floating Category Dropdown when collapsed */}
+          <div className={`category-dropdown-flyout ${showCategoryMenu ? 'open' : ''}`}>
+              <div className="flyout-header">
+                <span>Nhóm của tôi</span>
+                <button
+                  type="button"
+                  className="flyout-add-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onAddCategory();
+                    setShowCategoryMenu(false);
+                  }}
+                  title="Thêm nhóm mới"
+                >
+                  <Plus size={12} />
+                  <span>Thêm</span>
+                </button>
+              </div>
+
+              {selectedCategory && (
+                <div
+                  className="flyout-item clear-filter-item"
+                  onClick={() => {
+                    onSelectCategory(null);
+                    setShowCategoryMenu(false);
+                  }}
+                >
+                  <span style={{ fontSize: '0.78rem', color: 'var(--primary)', fontWeight: 600 }}>
+                    ✕ Bỏ lọc nhóm: "{selectedCategory}"
                   </span>
                 </div>
+              )}
 
-                {/* Edit Pencil & Trash Delete Buttons */}
-                <div className="category-actions">
-                  <button
-                    type="button"
-                    className="cat-action-btn"
-                    title={`Chỉnh sửa nhóm "${cat.name}"`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onEditCategory(cat);
-                    }}
-                  >
-                    <Pencil size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    className="cat-action-btn delete-btn"
-                    title={`Xóa nhóm "${cat.name}"`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      setDeleteError(null);
-                      setDeleteTarget({
-                        type: 'category',
-                        id: cat.id,
-                        name: cat.name,
-                        title: 'Xóa nhóm công việc',
-                        message: `Bạn có chắc chắn muốn xóa nhóm "${cat.name}" khỏi danh mục không?`,
-                        warningNote: 'Lưu ý: Không thể xóa nhóm nếu đang có công việc sử dụng nhóm này.',
-                      });
-                    }}
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </div>
+              <div className="flyout-list">
+                {categories.map((cat) => {
+                  const isSelected = selectedCategory === cat.name;
+                  return (
+                    <div
+                      key={cat.id}
+                      className={`flyout-item ${isSelected ? 'selected' : ''}`}
+                      onClick={() => {
+                        onSelectCategory(isSelected ? null : cat.name);
+                        setShowCategoryMenu(false);
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                        <span className="category-dot" style={{ background: cat.colorCode }} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {cat.name}
+                        </span>
+                      </div>
+
+                      <div className="category-actions" style={{ opacity: 1, display: 'flex', gap: 2 }}>
+                        <button
+                          type="button"
+                          className="cat-action-btn"
+                          title={`Chỉnh sửa "${cat.name}"`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEditCategory(cat);
+                            setShowCategoryMenu(false);
+                          }}
+                        >
+                          <Pencil size={12} />
+                        </button>
+                        <button
+                          type="button"
+                          className="cat-action-btn delete-btn"
+                          title={`Xóa "${cat.name}"`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setDeleteError(null);
+                            setDeleteTarget({
+                              type: 'category',
+                              id: cat.id,
+                              name: cat.name,
+                              title: 'Xóa nhóm công việc',
+                              message: `Bạn có chắc chắn muốn xóa nhóm "${cat.name}" khỏi danh mục không?`,
+                              warningNote: 'Lưu ý: Không thể xóa nhóm nếu đang có công việc sử dụng nhóm này.',
+                            });
+                            setShowCategoryMenu(false);
+                          }}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
+            </div>
         </div>
-      </div>
+      ) : (
+        <div className="sidebar-section">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingRight: 4 }}>
+            <h3 className="section-label" style={{ margin: 0 }}>NHÓM CỦA TÔI</h3>
+            <button
+              type="button"
+              className="add-category-btn"
+              onClick={onAddCategory}
+              title="Thêm nhóm công việc mới"
+            >
+              <Plus size={14} />
+            </button>
+          </div>
 
-      {/* ── Info Card (Chừa chỗ cho điều quan trọng) ── */}
-      <div className="sidebar-info-card">
-        <div className="info-icon-wrapper">
-          <Sparkles size={16} />
-        </div>
-        <div className="info-text">
-          <strong>Chừa chỗ cho điều quan trọng.</strong>
-          <p>Để SmartTask tìm thời gian trống, bạn giữ quyền quyết định.</p>
-        </div>
-      </div>
+          <div className="category-list">
+            {categories.map((cat) => {
+              const isSelected = selectedCategory === cat.name;
+              return (
+                <div
+                  key={cat.id}
+                  className={`category-item ${isSelected ? 'selected' : ''}`}
+                  onClick={() => onSelectCategory(isSelected ? null : cat.name)}
+                  style={{ position: 'relative' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                    <span className="category-dot" style={{ background: cat.colorCode }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {cat.name}
+                    </span>
+                  </div>
 
-      {/* ── Settings Link ── */}
+                  {/* Edit Pencil & Trash Delete Buttons */}
+                  <div className="category-actions">
+                    <button
+                      type="button"
+                      className="cat-action-btn"
+                      title={`Chỉnh sửa nhóm "${cat.name}"`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onEditCategory(cat);
+                      }}
+                    >
+                      <Pencil size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      className="cat-action-btn delete-btn"
+                      title={`Xóa nhóm "${cat.name}"`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        setDeleteError(null);
+                        setDeleteTarget({
+                          type: 'category',
+                          id: cat.id,
+                          name: cat.name,
+                          title: 'Xóa nhóm công việc',
+                          message: `Bạn có chắc chắn muốn xóa nhóm "${cat.name}" khỏi danh mục không?`,
+                          warningNote: 'Lưu ý: Không thể xóa nhóm nếu đang có công việc sử dụng nhóm này.',
+                        });
+                      }}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Settings Link (mt-auto pushes to bottom) ── */}
       <button
         className={`nav-item settings-link ${activeNav === 'settings' ? 'active' : ''}`}
         onClick={() => {
           onNavChange('settings');
           onOpenSettingsModal?.();
         }}
-        style={{ cursor: 'pointer' }}
+        title="Tài khoản & Thiết lập"
+        style={{ cursor: 'pointer', marginTop: 'auto' }}
       >
         <Settings size={18} className="settings-gear-icon" />
         <span>Tài khoản & Thiết lập</span>
       </button>
 
       {/* ── User Profile ── */}
-      <div ref={profileMenuRef} style={{ position: 'relative' }}>
+      <div
+        className="profile-hover-container"
+        ref={profileMenuRef}
+        style={{ position: 'relative', width: '100%' }}
+        onMouseEnter={handleProfileMouseEnter}
+        onMouseLeave={handleProfileMouseLeave}
+      >
         <div
           className={`user-profile ${showProfileMenu ? 'active' : ''}`}
           onClick={() => setShowProfileMenu(!showProfileMenu)}
+          onMouseEnter={handleProfileMouseEnter}
           style={{ cursor: 'pointer' }}
-          title="Nhấp để xem tài khoản / Đăng xuất"
+          title={isCollapsed ? `${userName} (${currentUser ? currentUser.role : 'Tài khoản cá nhân'})` : 'Nhấp để xem tài khoản / Đăng xuất'}
         >
-          <div className="user-avatar">
-            {userName.split(' ').map((w) => w[0]).join('').slice(0, 2)}
+          <div className="user-avatar" style={{ overflow: 'hidden' }}>
+            {currentUser?.avatarUrl ? (
+              <img
+                src={currentUser.avatarUrl}
+                alt={userName}
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            ) : (
+              userName.split(' ').map((w) => w[0]).join('').slice(0, 2)
+            )}
           </div>
           <div className="user-info">
             <span className="user-name">{userName}</span>
@@ -676,12 +873,20 @@ export default function Sidebar({
         </div>
 
         {/* Dropdown menu */}
-        {showProfileMenu && (
-          <div className="profile-dropdown-menu">
+        <div className={`profile-dropdown-menu ${showProfileMenu ? 'open' : ''}`}>
             {currentUser && (
-              <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--border-light)', fontSize: '0.75rem', color: 'var(--text-3)' }}>
-                <div style={{ fontWeight: 600, color: 'var(--text)' }}>{currentUser.fullName}</div>
-                <div style={{ fontSize: '0.72rem', opacity: 0.8 }}>{currentUser.email}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: '1px solid var(--border-light)' }}>
+                <div style={{ width: 36, height: 36, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'var(--primary-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, color: 'var(--primary)', fontSize: '0.82rem', border: '1px solid var(--border)' }}>
+                  {currentUser.avatarUrl ? (
+                    <img src={currentUser.avatarUrl} alt={currentUser.fullName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    userName.split(' ').map((w) => w[0]).join('').slice(0, 2)
+                  )}
+                </div>
+                <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                  <div style={{ fontWeight: 600, color: 'var(--text)', fontSize: '0.82rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentUser.fullName}</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentUser.email}</div>
+                </div>
               </div>
             )}
             <button
@@ -717,7 +922,6 @@ export default function Sidebar({
               </button>
             )}
           </div>
-        )}
       </div>
 
       {/* ── In-App Confirm Delete Modal ── */}

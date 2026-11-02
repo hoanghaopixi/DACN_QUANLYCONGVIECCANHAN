@@ -1,4 +1,4 @@
-import { Clock, Sparkles, ArrowRight, CheckCircle2, Calendar } from 'lucide-react';
+import { Clock, Sparkles, Calendar } from 'lucide-react';
 import { TimeBlock, Priority } from '../types';
 
 interface CurrentTaskWidgetProps {
@@ -120,146 +120,90 @@ export default function CurrentTaskWidget({ timeBlocks, onSelectTask }: CurrentT
   if (currentTask) {
     const currentTheme = getPriorityTheme(currentTask.priority);
     const nextTask = upcomingTasks[0];
-    const nextTheme = nextTask ? getPriorityTheme(nextTask.priority) : null;
     const timeRangeStr = `${formatTimeOnly(currentTask.startTime)} – ${formatTimeOnly(currentTask.endTime)}`;
 
     return (
-      <div
-        className="current-task-widget has-current"
-        style={{
-          backgroundColor: currentTheme.bgLight,
-          borderColor: currentTheme.borderLight,
-        }}
-        onClick={() => onSelectTask?.(currentTask)}
-        title="Nhấp để xem chi tiết công việc hiện tại"
-      >
-        {/* Phần trên: Tiêu đề widget + Chi tiết công việc đang chạy */}
-        <div className="current-task-header">
-          <div className="current-task-badge" style={{ backgroundColor: currentTheme.badgeBg, color: currentTheme.badgeColor }}>
-            <span className="pulse-indicator" style={{ backgroundColor: currentTheme.dotColor }} />
-            <span className="badge-title">CÔNG VIỆC HIỆN TẠI</span>
-            <span className="badge-divider">•</span>
-            <span className="badge-priority">{currentTheme.label}</span>
-          </div>
+      <div className="compact-widget-container">
+        <button
+          type="button"
+          className="compact-current-pill"
+          style={{
+            backgroundColor: currentTheme.bgLight,
+            borderColor: currentTheme.borderLight,
+            color: currentTheme.textLight,
+          }}
+          onClick={() => onSelectTask?.(currentTask)}
+          title={`Đang diễn ra: ${currentTask.title} (${timeRangeStr}) · Nhấp để xem chi tiết`}
+        >
+          <span className="compact-pulse-dot" style={{ backgroundColor: currentTheme.dotColor }} />
+          <span className="compact-pill-tag">ĐANG DIỄN RA:</span>
+          <span className="compact-pill-name">{currentTask.title}</span>
+          <span className="compact-pill-time">
+            <Clock size={11} style={{ marginRight: 3, verticalAlign: '-1px' }} />
+            {timeRangeStr}
+          </span>
+        </button>
 
-          <div className="current-task-time" style={{ color: currentTheme.textLight }}>
-            <Clock size={12} style={{ marginRight: 4, display: 'inline', verticalAlign: '-1px' }} />
-            <span>{timeRangeStr}</span>
-          </div>
-        </div>
-
-        {/* Tên công việc & Chú thích */}
-        <div className="current-task-body">
-          <h4 className="current-task-name" style={{ color: currentTheme.textLight }}>
-            {currentTask.title}
-          </h4>
-          {currentTask.note && (
-            <p className="current-task-note" style={{ color: currentTheme.textLight }}>
-              <span>💬</span> {currentTask.note}
-            </p>
-          )}
-        </div>
-
-        {/* Phần dưới: Kèm 1 dòng công việc sắp tới (màu nền theo mức độ khẩn cấp của công việc sắp tới) */}
-        {nextTask && nextTheme ? (
-          <div
-            className="next-task-row"
-            style={{
-              backgroundColor: nextTheme.bgLight,
-              borderColor: nextTheme.borderLight,
-              color: nextTheme.textLight,
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              onSelectTask?.(nextTask);
-            }}
-            title="Nhấp để xem công việc sắp tới"
+        {nextTask && (
+          <button
+            type="button"
+            className="compact-next-chip"
+            onClick={() => onSelectTask?.(nextTask)}
+            title={`Việc kế tiếp: ${nextTask.title} (${formatTimeOnly(nextTask.startTime)})`}
           >
-            <div className="next-task-left">
-              <span className="next-label">Sắp tới:</span>
-              <span className="next-time">{formatTimeOnly(nextTask.startTime)}</span>
-              <span className="next-name">{nextTask.title}</span>
-            </div>
-            <div className="next-task-right">
-              <span
-                className="mini-priority-badge"
-                style={{ backgroundColor: nextTheme.badgeBg, color: nextTheme.badgeColor }}
-              >
-                {nextTheme.label}
-              </span>
-              <ArrowRight size={12} className="next-arrow" />
-            </div>
-          </div>
-        ) : (
-          <div className="next-task-empty">
-            <CheckCircle2 size={12} style={{ color: currentTheme.accent, marginRight: 5 }} />
-            <span>Đã là công việc cuối cùng trong hôm nay</span>
-          </div>
+            <span className="compact-next-label">Kế tiếp:</span>
+            <span className="compact-next-title">{nextTask.title}</span>
+            <span className="compact-next-time">{formatTimeOnly(nextTask.startTime)}</span>
+          </button>
         )}
       </div>
     );
   }
 
   // =========================================================================
-  // TRƯỜNG HỢP 2: KHÔNG CÓ CÔNG VIỆC HIỆN TẠI
+  // TRƯỜNG HỢP 2: KHÔNG CÓ CÔNG VIỆC HIỆN TẠI -> HIỂN THỊ DẠNG CHIP NGANG GỌN GÀNG
   // =========================================================================
   const upcomingSlice = upcomingTasks.slice(0, 3);
 
   return (
-    <div className="current-task-widget no-current">
-      {/* Header trạng thái */}
-      <div className="no-current-header">
-        <div className="no-current-title-wrap">
-          <Sparkles size={14} className="sparkle-icon" />
-          <span className="no-current-title">Hiện tại không có công việc</span>
-        </div>
-        {upcomingSlice.length > 0 && (
-          <span className="upcoming-summary-tag">
-            {upcomingTasks.length} việc sắp tới hôm nay
-          </span>
-        )}
-      </div>
-
-      {/* Danh sách công việc sắp tới dạng ngang (2-3 công việc, màu theo mức độ khẩn cấp) */}
+    <div className="compact-widget-container">
       {upcomingSlice.length > 0 ? (
-        <div className="upcoming-horizontal-list">
-          {upcomingSlice.map((task) => {
-            const taskTheme = getPriorityTheme(task.priority);
-            const timeStr = `${formatTimeOnly(task.startTime)}–${formatTimeOnly(task.endTime)}`;
+        <div className="compact-chips-wrap">
+          <div className="compact-upcoming-label">
+            <Sparkles size={13} className="sparkle-icon" />
+            <span>Sắp tới:</span>
+          </div>
 
-            return (
-              <div
-                key={task.id}
-                className="upcoming-item-card"
-                style={{
-                  backgroundColor: taskTheme.bgLight,
-                  borderColor: taskTheme.borderLight,
-                  color: taskTheme.textLight,
-                }}
-                onClick={() => onSelectTask?.(task)}
-                title={`Công việc sắp tới: ${task.title} (${timeStr}) · Mức độ: ${taskTheme.label}`}
-              >
-                <div className="upcoming-item-top">
-                  <span className="upcoming-item-time">
-                    <Clock size={11} style={{ marginRight: 3, display: 'inline', verticalAlign: '-1px' }} />
-                    {timeStr}
-                  </span>
-                  <span
-                    className="upcoming-item-badge"
-                    style={{ backgroundColor: taskTheme.badgeBg, color: taskTheme.badgeColor }}
-                  >
-                    {taskTheme.label}
-                  </span>
-                </div>
-                <div className="upcoming-item-title">{task.title}</div>
-              </div>
-            );
-          })}
+          <div className="compact-chips-list">
+            {upcomingSlice.map((task) => {
+              const taskTheme = getPriorityTheme(task.priority);
+              const timeStr = `${formatTimeOnly(task.startTime)}–${formatTimeOnly(task.endTime)}`;
+
+              return (
+                <button
+                  key={task.id}
+                  type="button"
+                  className="compact-task-chip"
+                  style={{
+                    backgroundColor: taskTheme.bgLight,
+                    borderColor: taskTheme.borderLight,
+                    color: taskTheme.textLight,
+                  }}
+                  onClick={() => onSelectTask?.(task)}
+                  title={`Công việc sắp tới: ${task.title} (${timeStr}) · Mức độ: ${taskTheme.label}`}
+                >
+                  <span className="compact-chip-dot" style={{ backgroundColor: taskTheme.dotColor }} />
+                  <span className="compact-chip-time">{formatTimeOnly(task.startTime)}</span>
+                  <span className="compact-chip-title">{task.title}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       ) : (
-        <div className="all-clear-banner">
-          <Calendar size={13} style={{ marginRight: 6, opacity: 0.7 }} />
-          <span>Hôm nay không còn công việc nào sắp tới · Bạn có thể thảnh thơi</span>
+        <div className="compact-all-clear">
+          <Calendar size={13} style={{ opacity: 0.7 }} />
+          <span>Hôm nay không còn việc nào sắp tới !</span>
         </div>
       )}
     </div>

@@ -1,48 +1,185 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import {
   CheckCircle2, Circle, Clock, Tag, AlertCircle, Plus,
-  Search, Edit3, Trash2, CheckSquare
+  Search, Edit3, Trash2, CheckSquare, Flame, ChevronDown, Check
 } from 'lucide-react';
-import { TimeBlock, Category } from '../types';
+import { TimeBlock, Category, EisenhowerQuadrant } from '../types';
 import { matchesSearch } from '../utils/vietnameseSearch';
+import { formatDateDDMMYYYY } from '../utils/dateTimeFormat';
 import ConfirmModal from './ConfirmModal';
+import EisenhowerMatrix from './EisenhowerMatrix';
+import HoverSelect from './HoverSelect';
 
 interface TasksViewProps {
   tasks: (TimeBlock & { isRecurring?: boolean; subtext?: string; colorOverride?: string; priority?: string })[];
   categories: Category[];
   onAddTask: () => void;
+  onAddQuadrantTask?: (quadrant: EisenhowerQuadrant) => void;
   onEditTask: (task: TimeBlock) => void;
   onDeleteTask: (id: number) => void;
   onToggleStatus: (task: TimeBlock) => void;
+  onShowToast?: (msg: string) => void;
+  onReload?: () => void;
 }
 
 export default function TasksView({
   tasks,
   categories,
   onAddTask,
+  onAddQuadrantTask,
   onEditTask,
   onDeleteTask,
   onToggleStatus,
+  onShowToast,
+  onReload,
 }: TasksViewProps) {
+  const [viewLayout, setViewLayout] = useState<'LIST' | 'EISENHOWER'>('LIST');
+  const [isLayoutTransitioning, setIsLayoutTransitioning] = useState(false);
+  const layoutStageRef = useRef<HTMLDivElement | null>(null);
+  const [isLayoutMenuOpen, setIsLayoutMenuOpen] = useState(false);
+  const [shouldRenderLayoutMenu, setShouldRenderLayoutMenu] = useState(false);
+  const [isLayoutMenuExiting, setIsLayoutMenuExiting] = useState(false);
+  const layoutMenuRef = useRef<HTMLDivElement | null>(null);
+  const layoutMenuTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [taskToDelete, setTaskToDelete] = useState<TimeBlock | null>(null);
   const [search, setSearch] = useState('');
-  const [statusTab, setStatusTab] = useState<'ALL' | 'TODO' | 'IN_PROGRESS' | 'COMPLETED'>('ALL');
-  const [selectedCat, setSelectedCat] = useState<string | null>(null);
+  const [statusTab, setStatusTab] = useState<'ALL' | 'TODO' | 'IN_PROGRESS' | 'OVERDUE' | 'COMPLETED' | 'HABITS'>('ALL');
   const [selectedPriority, setSelectedPriority] = useState<string>('ALL');
+
+  useEffect(() => () => {
+    if (layoutMenuTimer.current) clearTimeout(layoutMenuTimer.current);
+  }, []);
+
+  useEffect(() => {
+    if (isLayoutMenuOpen) {
+      setShouldRenderLayoutMenu(true);
+      setIsLayoutMenuExiting(false);
+      return;
+    }
+    if (!shouldRenderLayoutMenu) return;
+    setIsLayoutMenuExiting(true);
+    const timeout = setTimeout(() => {
+      setShouldRenderLayoutMenu(false);
+      setIsLayoutMenuExiting(false);
+    }, 190);
+    return () => clearTimeout(timeout);
+  }, [isLayoutMenuOpen, shouldRenderLayoutMenu]);
+
+  useEffect(() => {
+    if (!isLayoutMenuOpen) return;
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!layoutMenuRef.current?.contains(event.target as Node)) setIsLayoutMenuOpen(false);
+    };
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick);
+  }, [isLayoutMenuOpen]);
+
+  const handleViewLayoutChange = (nextLayout: 'LIST' | 'EISENHOWER') => {
+    if (nextLayout === viewLayout || isLayoutTransitioning) return;
+    setIsLayoutMenuOpen(false);
+
+    const stage = layoutStageRef.current;
+    if (!stage?.animate) {
+      setViewLayout(nextLayout);
+      return;
+    }
+
+    setIsLayoutTransitioning(true);
+    stage.getAnimations().forEach((animation) => animation.cancel());
+    const exitAnimation = stage.animate(
+      [
+        { opacity: 1, transform: 'scale(1)' },
+        { opacity: 0, transform: 'scale(.92)' },
+      ],
+      { duration: 220, easing: 'cubic-bezier(.4, 0, .8, .3)', fill: 'forwards' },
+    );
+
+    exitAnimation.onfinish = () => {
+      flushSync(() => setViewLayout(nextLayout));
+      requestAnimationFrame(() => {
+        const updatedStage = layoutStageRef.current;
+        if (!updatedStage) {
+          setIsLayoutTransitioning(false);
+          return;
+        }
+        const enterAnimation = updatedStage.animate(
+          [
+            { opacity: 0, transform: 'scale(.92)' },
+            { opacity: 1, transform: 'scale(1)' },
+          ],
+          { duration: 360, easing: 'cubic-bezier(.18, .72, .24, 1)', fill: 'both' },
+        );
+        enterAnimation.onfinish = () => {
+          exitAnimation.cancel();
+          enterAnimation.cancel();
+          setIsLayoutTransitioning(false);
+        };
+      });
+    };
+  };
+
+  // Helper check if task scheduled time has passed without being completed
+  const isTaskPast = (t: TimeBlock) => {
+    if (t.status === 'COMPLETED') return false;
+    if (t.status === 'OVERDUE') return true;
+    const end = t.endTime ? new Date(t.endTime).getTime() : new Date(t.startTime).getTime();
+    return end < Date.now();
+  };
+
+  // Helper to get numeric timestamp for chronological sorting
+  const getTimeValue = (t: TimeBlock) => {
+    if (t.startTime) {
+      const ms = new Date(t.startTime).getTime();
+      if (!isNaN(ms)) return ms;
+    }
+    if (t.endTime) {
+      const ms = new Date(t.endTime).getTime();
+      if (!isNaN(ms)) return ms;
+    }
+    return 0;
+  };
 
   // Stats
   const totalCount = tasks.length;
-  const todoCount = tasks.filter((t) => t.status === 'TODO').length;
-  const inProgressCount = tasks.filter((t) => t.status === 'IN_PROGRESS').length;
   const completedCount = tasks.filter((t) => t.status === 'COMPLETED').length;
+  const pastCount = tasks.filter((t) => isTaskPast(t)).length;
+  const todoCount = tasks.filter((t) => t.status === 'TODO' && !isTaskPast(t)).length;
+  const habitCount = tasks.filter((t) => t.isRecurring).length;
 
   // Filtered tasks
   const filteredTasks = tasks.filter((t) => {
-    if (statusTab !== 'ALL' && t.status !== statusTab) return false;
-    if (selectedCat && t.categoryType !== selectedCat) return false;
+    if (statusTab === 'TODO') {
+      if (t.status !== 'TODO' || isTaskPast(t)) return false;
+    } else if (statusTab === 'IN_PROGRESS') {
+      if (t.status !== 'IN_PROGRESS' || isTaskPast(t)) return false;
+    } else if (statusTab === 'OVERDUE') {
+      if (!isTaskPast(t)) return false;
+    } else if (statusTab === 'COMPLETED') {
+      if (t.status !== 'COMPLETED') return false;
+    } else if (statusTab === 'HABITS') {
+      if (!t.isRecurring) return false;
+    }
     if (selectedPriority !== 'ALL' && t.priority !== selectedPriority) return false;
     if (search.trim() && !matchesSearch(t.title, search) && !matchesSearch(t.description, search)) return false;
     return true;
+  });
+
+  // Sort by time, and push completed tasks to the bottom of the list
+  const sortedTasks = [...filteredTasks].sort((a, b) => {
+    const aCompleted = a.status === 'COMPLETED';
+    const bCompleted = b.status === 'COMPLETED';
+    // 1. Incompleted tasks first, completed tasks pushed down to the end!
+    if (aCompleted !== bCompleted) {
+      return aCompleted ? 1 : -1;
+    }
+    // 2. Both incompleted or both completed: sort chronologically by time
+    const timeA = getTimeValue(a);
+    const timeB = getTimeValue(b);
+    if (timeA !== timeB) {
+      return timeA - timeB;
+    }
+    return a.id - b.id;
   });
 
   const getPriorityLabel = (p?: string) => {
@@ -70,48 +207,113 @@ export default function TasksView({
     const e = new Date(endStr);
     const dayNames = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
     const dayName = dayNames[s.getDay()];
-    const dateFormatted = `${s.getDate()}/${s.getMonth() + 1}/${s.getFullYear()}`;
+    const dateFormatted = formatDateDDMMYYYY(s);
     const timeFormatted = `${s.getHours().toString().padStart(2, '0')}:${s.getMinutes().toString().padStart(2, '0')} – ${e.getHours().toString().padStart(2, '0')}:${e.getMinutes().toString().padStart(2, '0')}`;
     return `${dayName}, ${dateFormatted} · ${timeFormatted}`;
   };
 
   return (
-    <div style={{ padding: '24px 28px', maxWidth: 1200, margin: '0 auto', width: '100%' }}>
-      {/* ── Top Header ── */}
+    <div
+      className={`tasks-view${viewLayout === 'EISENHOWER' ? ' tasks-view-eisenhower' : ''}`}
+      style={viewLayout === 'EISENHOWER'
+        ? { padding: '12px 20px', maxWidth: 1300, margin: '0 auto', width: '100%', height: '100%', minHeight: 0, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', overflow: 'hidden' }
+        : { padding: '18px 24px', maxWidth: 1200, margin: '0 auto', width: '100%' }}
+    >
+      {/* ── Top Header Title ── */}
+      <div className="tasks-page-heading" style={{ marginBottom: viewLayout === 'EISENHOWER' ? 8 : 12 }}>
+        <h1 style={{ fontSize: viewLayout === 'EISENHOWER' ? '1.35rem' : '1.6rem', fontWeight: 800, color: 'var(--text)', margin: 0 }}>
+          Quản lý Công việc
+        </h1>
+        <p className="tasks-page-description" style={{ fontSize: '0.85rem', color: 'var(--text-3)', margin: '4px 0 0' }}>
+          Toàn bộ công việc trong không gian cá nhân được đồng bộ với cơ sở dữ liệu
+        </p>
+      </div>
+
+      {/* ── Controls Row: View mode on Left, + Thêm công việc on Far Right ── */}
       <div
+        className="tasks-view-controls"
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 16,
-          marginBottom: 24,
+          gap: 12,
+          marginBottom: viewLayout === 'EISENHOWER' ? 8 : 12,
         }}
       >
-        <div>
-          <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text)', margin: 0 }}>
-            Quản lý Công việc
-          </h1>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-3)', margin: '4px 0 0' }}>
-            Toàn bộ công việc trong không gian cá nhân được đồng bộ với cơ sở dữ liệu
-          </p>
+        <div className="tasks-view-mode-picker">
+          <span style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
+            Chế độ xem:
+          </span>
+          <div
+            className="tasks-layout-dropdown"
+            ref={layoutMenuRef}
+            onMouseEnter={() => {
+              if (layoutMenuTimer.current) clearTimeout(layoutMenuTimer.current);
+              if (!isLayoutTransitioning) setIsLayoutMenuOpen(true);
+            }}
+            onMouseLeave={() => {
+              if (layoutMenuTimer.current) clearTimeout(layoutMenuTimer.current);
+              layoutMenuTimer.current = setTimeout(() => setIsLayoutMenuOpen(false), 220);
+            }}
+          >
+            <button
+              type="button"
+              className="tasks-layout-trigger"
+              aria-haspopup="menu"
+              aria-expanded={isLayoutMenuOpen}
+              onClick={() => setIsLayoutMenuOpen((open) => !open)}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowDown') {
+                  event.preventDefault();
+                  setIsLayoutMenuOpen(true);
+                } else if (event.key === 'Escape') {
+                  setIsLayoutMenuOpen(false);
+                }
+              }}
+            >
+              <span>{viewLayout === 'LIST' ? 'Xem dưới dạng danh sách' : 'Xem dạng lưới (Ma trận Eisenhower)'}</span>
+              <ChevronDown size={15} className={isLayoutMenuOpen ? 'is-open' : ''} />
+            </button>
+            {shouldRenderLayoutMenu && (
+              <div className={`tasks-layout-menu${isLayoutMenuExiting ? ' is-exiting' : ''}`} role="menu">
+                {([
+                  { value: 'LIST' as const, label: 'Xem dưới dạng danh sách' },
+                  { value: 'EISENHOWER' as const, label: 'Xem dạng lưới (Ma trận Eisenhower)' },
+                ]).map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`tasks-layout-option${viewLayout === option.value ? ' is-selected' : ''}`}
+                    role="menuitemradio"
+                    aria-checked={viewLayout === option.value}
+                    onClick={() => handleViewLayoutChange(option.value)}
+                  >
+                    <span>{option.label}</span>
+                    {viewLayout === option.value && <Check size={15} />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <button
+          className={`tasks-add-task-button${viewLayout === 'EISENHOWER' ? ' is-compact' : ''}`}
           onClick={onAddTask}
           style={{
             display: 'flex',
             alignItems: 'center',
             gap: 8,
-            padding: '10px 18px',
+            padding: viewLayout === 'EISENHOWER' ? '8px 15px' : '8px 16px',
             borderRadius: 10,
             background: 'var(--primary)',
             color: '#fff',
-            fontSize: '0.88rem',
+            fontSize: viewLayout === 'EISENHOWER' ? '0.82rem' : '0.84rem',
             fontWeight: 600,
             boxShadow: '0 2px 8px rgba(108, 92, 231, 0.3)',
             cursor: 'pointer',
             transition: 'all 0.2s',
+            whiteSpace: 'nowrap',
           }}
         >
           <Plus size={16} />
@@ -119,13 +321,44 @@ export default function TasksView({
         </button>
       </div>
 
-      {/* ── 4 Summary Mini Cards ── */}
       <div
+        ref={layoutStageRef}
+        className="tasks-layout-stage"
+        style={viewLayout === 'EISENHOWER'
+          ? { display: 'flex', flexDirection: 'column', flex: '1 1 auto', minHeight: 0, overflow: 'hidden' }
+          : undefined}
+      >
+      {viewLayout === 'EISENHOWER' ? (
+        <div className="eisenhower-matrix-host" style={{ marginTop: 0, flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <EisenhowerMatrix
+            tasks={tasks}
+            categories={categories}
+            showHeader={false}
+            onAddTask={(quadrant) => {
+              if (onAddQuadrantTask) {
+                onAddQuadrantTask(quadrant);
+              } else {
+                onAddTask();
+              }
+            }}
+            onEditTask={onEditTask}
+            onToggleStatus={onToggleStatus}
+            onShowToast={onShowToast || (() => {})}
+            onReload={onReload || (() => {})}
+          />
+        </div>
+      ) : (
+        <>
+          {/* ── 5 Summary Mini Cards - Always 1 single line without wrapping ── */}
+      {/* ── 5 Summary Mini Cards - Centered & Compact ── */}
+      <div
+        className="tasks-summary-grid"
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-          gap: 14,
-          marginBottom: 24,
+          gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+          gap: 8,
+          marginBottom: 10,
+          width: '100%',
         }}
       >
         <div
@@ -133,15 +366,21 @@ export default function TasksView({
           style={{
             background: 'var(--surface)',
             border: statusTab === 'ALL' ? '2px solid var(--primary)' : '1px solid var(--border)',
-            borderRadius: 12,
-            padding: '14px 16px',
+            borderRadius: 10,
+            padding: '7px 8px',
             cursor: 'pointer',
             boxShadow: 'var(--shadow-xs)',
             transition: 'all 0.2s',
+            minWidth: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            textAlign: 'center',
           }}
         >
-          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>TỔNG CÔNG VIỆC</div>
-          <div style={{ fontSize: '1.45rem', fontWeight: 800, color: 'var(--text)', marginTop: 4 }}>
+          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>TỔNG CÔNG VIỆC</div>
+          <div style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--text)', marginTop: 2, lineHeight: 1.1 }}>
             {totalCount}
           </div>
         </div>
@@ -151,34 +390,46 @@ export default function TasksView({
           style={{
             background: 'var(--surface)',
             border: statusTab === 'TODO' ? '2px solid var(--primary)' : '1px solid var(--border)',
-            borderRadius: 12,
-            padding: '14px 16px',
+            borderRadius: 10,
+            padding: '7px 8px',
             cursor: 'pointer',
             boxShadow: 'var(--shadow-xs)',
             transition: 'all 0.2s',
+            minWidth: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            textAlign: 'center',
           }}
         >
-          <div style={{ fontSize: '0.78rem', color: '#64748B', fontWeight: 600 }}>CẦN LÀM (TODO)</div>
-          <div style={{ fontSize: '1.45rem', fontWeight: 800, color: '#64748B', marginTop: 4 }}>
+          <div style={{ fontSize: '0.68rem', color: '#64748B', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>CẦN LÀM (TODO)</div>
+          <div style={{ fontSize: '1.35rem', fontWeight: 800, color: '#64748B', marginTop: 2, lineHeight: 1.1 }}>
             {todoCount}
           </div>
         </div>
 
         <div
-          onClick={() => setStatusTab('IN_PROGRESS')}
+          onClick={() => setStatusTab('OVERDUE')}
           style={{
             background: 'var(--surface)',
-            border: statusTab === 'IN_PROGRESS' ? '2px solid var(--primary)' : '1px solid var(--border)',
-            borderRadius: 12,
-            padding: '14px 16px',
+            border: statusTab === 'OVERDUE' ? '2px solid #EF4444' : '1px solid var(--border)',
+            borderRadius: 10,
+            padding: '7px 8px',
             cursor: 'pointer',
             boxShadow: 'var(--shadow-xs)',
             transition: 'all 0.2s',
+            minWidth: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            textAlign: 'center',
           }}
         >
-          <div style={{ fontSize: '0.78rem', color: '#D97706', fontWeight: 600 }}>ĐANG THỰC HIỆN</div>
-          <div style={{ fontSize: '1.45rem', fontWeight: 800, color: '#D97706', marginTop: 4 }}>
-            {inProgressCount}
+          <div style={{ fontSize: '0.68rem', color: '#EF4444', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>ĐÃ QUA</div>
+          <div style={{ fontSize: '1.35rem', fontWeight: 800, color: '#EF4444', marginTop: 2, lineHeight: 1.1 }}>
+            {pastCount}
           </div>
         </div>
 
@@ -186,157 +437,118 @@ export default function TasksView({
           onClick={() => setStatusTab('COMPLETED')}
           style={{
             background: 'var(--surface)',
-            border: statusTab === 'COMPLETED' ? '2px solid var(--primary)' : '1px solid var(--border)',
-            borderRadius: 12,
-            padding: '14px 16px',
+            border: statusTab === 'COMPLETED' ? '2px solid #10B981' : '1px solid var(--border)',
+            borderRadius: 10,
+            padding: '7px 8px',
             cursor: 'pointer',
             boxShadow: 'var(--shadow-xs)',
             transition: 'all 0.2s',
+            minWidth: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            textAlign: 'center',
           }}
         >
-          <div style={{ fontSize: '0.78rem', color: '#10B981', fontWeight: 600 }}>ĐÃ HOÀN THÀNH</div>
-          <div style={{ fontSize: '1.45rem', fontWeight: 800, color: '#10B981', marginTop: 4 }}>
+          <div style={{ fontSize: '0.64rem', letterSpacing: '-0.2px', color: '#10B981', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }} title="ĐÃ ĐÁNH DẤU HOÀN THÀNH">ĐÃ ĐÁNH DẤU HOÀN THÀNH</div>
+          <div style={{ fontSize: '1.35rem', fontWeight: 800, color: '#10B981', marginTop: 2, lineHeight: 1.1 }}>
             {completedCount}
+          </div>
+        </div>
+
+        <div
+          onClick={() => setStatusTab('HABITS')}
+          style={{
+            background: 'var(--surface)',
+            border: statusTab === 'HABITS' ? '2px solid #EA580C' : '1px solid var(--border)',
+            borderRadius: 10,
+            padding: '7px 8px',
+            cursor: 'pointer',
+            boxShadow: 'var(--shadow-xs)',
+            transition: 'all 0.2s',
+            minWidth: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            textAlign: 'center',
+          }}
+        >
+          <div style={{ fontSize: '0.66rem', color: '#EA580C', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>
+            <span>THÓI QUEN LẶP LẠI</span>
+          </div>
+          <div style={{ fontSize: '1.35rem', fontWeight: 800, color: '#EA580C', marginTop: 2, lineHeight: 1.1 }}>
+            {habitCount}
           </div>
         </div>
       </div>
 
-      {/* ── Filters & Search Controls Bar ── */}
+      {/* ── Compact Filter Bar (Search on Left, Priority on Right - matching Image 2) ── */}
       <div
+        className="tasks-filter-bar"
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          flexWrap: 'wrap',
           gap: 12,
           background: 'var(--surface)',
-          padding: '12px 16px',
+          padding: '7px 12px',
           borderRadius: 12,
           border: '1px solid var(--border)',
-          marginBottom: 20,
+          marginBottom: 12,
+          boxShadow: 'var(--shadow-xs)',
         }}
       >
-        {/* Status Tab buttons */}
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {[
-            { id: 'ALL', label: 'Tất cả' },
-            { id: 'TODO', label: 'Cần làm' },
-            { id: 'IN_PROGRESS', label: 'Đang làm' },
-            { id: 'COMPLETED', label: 'Đã hoàn thành' },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setStatusTab(tab.id as any)}
-              style={{
-                padding: '6px 14px',
-                borderRadius: 8,
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                color: statusTab === tab.id ? 'var(--primary)' : 'var(--text-3)',
-                background: statusTab === tab.id ? 'var(--primary-bg)' : 'transparent',
-                border: statusTab === tab.id ? '1px solid rgba(108, 92, 231, 0.25)' : '1px solid transparent',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Priority select & Search input */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1, justifyContent: 'flex-end' }}>
-          <select
-            value={selectedPriority}
-            onChange={(e) => setSelectedPriority(e.target.value)}
+        {/* Left: Search input */}
+        <div style={{ position: 'relative', width: 340, maxWidth: '100%' }}>
+          <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+          <input
+            type="text"
+            placeholder="Tìm theo tên công việc..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
             style={{
-              padding: '7px 10px',
+              width: '100%',
+              padding: '8px 12px 8px 36px',
               borderRadius: 8,
               border: '1px solid var(--border)',
-              background: 'var(--surface)',
+              background: 'transparent',
               color: 'var(--text)',
-              fontSize: '0.8rem',
+              fontSize: '0.84rem',
               outline: 'none',
-              cursor: 'pointer',
+              transition: 'border-color 0.2s',
             }}
-          >
-            <option value="ALL">Tất cả mức ưu tiên</option>
-            <option value="URGENT">Khẩn cấp</option>
-            <option value="HIGH">Cao</option>
-            <option value="MEDIUM">Trung bình</option>
-            <option value="LOW">Thấp</option>
-          </select>
-
-          <div style={{ position: 'relative', minWidth: 220, flex: 1, maxWidth: 300 }}>
-            <Search size={15} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--text-muted)' }} />
-            <input
-              type="text"
-              placeholder="Tìm theo tên công việc..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '8px 12px 8px 32px',
-                borderRadius: 8,
-                border: '1px solid var(--border)',
-                background: 'var(--surface)',
-                color: 'var(--text)',
-                fontSize: '0.82rem',
-                outline: 'none',
-              }}
-            />
-          </div>
+          />
         </div>
-      </div>
 
-      {/* ── Category Pills Filter ── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>Phân loại:</span>
-        <button
-          onClick={() => setSelectedCat(null)}
+        {/* Right: Priority select */}
+        <HoverSelect
+          value={selectedPriority}
+          onChange={(e) => setSelectedPriority(e.target.value)}
           style={{
-            padding: '4px 12px',
-            borderRadius: 20,
-            fontSize: '0.78rem',
-            fontWeight: 600,
-            background: selectedCat === null ? 'var(--primary)' : 'var(--border-light)',
-            color: selectedCat === null ? '#fff' : 'var(--text-2)',
+            padding: '8px 14px',
+            borderRadius: 8,
+            border: '1px solid var(--border)',
+            background: 'var(--surface)',
+            color: 'var(--text)',
+            fontSize: '0.84rem',
+            outline: 'none',
             cursor: 'pointer',
-            transition: 'all 0.2s',
+            fontWeight: 500,
           }}
         >
-          Tất cả
-        </button>
-        {categories.map((c) => {
-          const isSelected = selectedCat === c.type;
-          return (
-            <button
-              key={c.id}
-              onClick={() => setSelectedCat(isSelected ? null : c.type)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '4px 12px',
-                borderRadius: 20,
-                fontSize: '0.78rem',
-                fontWeight: 600,
-                background: isSelected ? c.colorCode : 'var(--border-light)',
-                color: isSelected ? '#fff' : 'var(--text-2)',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-              }}
-            >
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: isSelected ? '#fff' : c.colorCode }} />
-              <span>{c.name}</span>
-            </button>
-          );
-        })}
+          <option value="ALL">Tất cả mức ưu tiên</option>
+          <option value="URGENT">Khẩn cấp</option>
+          <option value="HIGH">Cao</option>
+          <option value="MEDIUM">Trung bình</option>
+          <option value="LOW">Thấp</option>
+        </HoverSelect>
       </div>
 
       {/* ── Tasks List ── */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {filteredTasks.length === 0 ? (
+      <div className={`tasks-list ${sortedTasks.length === 0 ? 'empty' : ''}`}>
+        {sortedTasks.length === 0 ? (
           <div
             style={{
               textAlign: 'center',
@@ -356,123 +568,109 @@ export default function TasksView({
             </p>
           </div>
         ) : (
-          filteredTasks.map((task) => {
+          <>
+          <div className="task-list-header" role="row">
+            <span aria-hidden="true" />
+            <span role="columnheader">Công việc</span>
+            <span role="columnheader">Thời gian</span>
+            <span role="columnheader">Nhóm</span>
+            <span role="columnheader">Ưu tiên</span>
+            <span role="columnheader">Ma trận</span>
+            <span role="columnheader">Trạng thái</span>
+            <span aria-hidden="true" />
+          </div>
+          {sortedTasks.map((task, index) => {
             const cat = getCategoryMeta(task.categoryType);
             const prio = getPriorityLabel(task.priority);
             const isCompleted = task.status === 'COMPLETED';
+            const isFirstCompleted = isCompleted && index > 0 && sortedTasks[index - 1].status !== 'COMPLETED';
 
             return (
-              <div
-                key={task.id}
-                className="task-row-card"
-                style={{
-                  borderLeft: `4px solid ${cat.colorCode}`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 16,
-                }}
-              >
-                {/* Left: Checkbox + Title + Meta info */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14, flex: 1, minWidth: 0 }}>
-                  <button
-                    onClick={() => onToggleStatus(task)}
-                    title={isCompleted ? 'Đánh dấu chưa hoàn thành' : 'Đánh dấu hoàn thành'}
+              <div key={task.id}>
+                {isFirstCompleted && (
+                  <div
                     style={{
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      color: isCompleted ? '#10B981' : 'var(--text-muted)',
-                      padding: 2,
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
+                      gap: 12,
+                      margin: '10px 0 6px',
+                      color: 'var(--text-muted)',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      letterSpacing: 0.5,
                     }}
                   >
-                    {isCompleted ? <CheckCircle2 size={22} /> : <Circle size={22} />}
+                    <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                    <span>ĐÃ ĐÁNH DẤU HOÀN THÀNH ({completedCount})</span>
+                    <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                  </div>
+                )}
+                <div className="task-row-card task-list-grid-row" role="row" style={{ opacity: isCompleted ? 0.9 : 1 }}>
+                  <button
+                    className={`task-list-complete-toggle${isCompleted ? ' is-completed' : ''}`}
+                    onClick={() => onToggleStatus(task)}
+                    title={isCompleted ? 'Đánh dấu chưa hoàn thành' : 'Đánh dấu hoàn thành'}
+                    aria-label={isCompleted ? 'Đánh dấu chưa hoàn thành' : 'Đánh dấu hoàn thành'}
+                  >
+                    {isCompleted ? <CheckCircle2 size={20} /> : <Circle size={20} />}
                   </button>
 
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div
-                      style={{
-                        fontSize: '0.95rem',
-                        fontWeight: 600,
-                        color: isCompleted ? 'var(--text-muted)' : 'var(--text)',
-                        textDecoration: isCompleted ? 'line-through' : 'none',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      {task.title}
-                    </div>
-
-                    {task.note && (
-                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontStyle: 'italic', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <span>💬</span>
-                        <span>{task.note}</span>
+                  <div className="task-list-title-cell">
+                    <div className={`task-list-title${isCompleted ? ' is-completed' : ''}`} title={task.title}>{task.title}</div>
+                    {task.note && <div className="task-list-note" title={task.note}>{task.note}</div>}
+                    {(task.subtasksCount || task.isRecurring) && (
+                      <div className="task-list-title-extras">
+                        {task.subtasksCount ? (
+                          <span><CheckSquare size={11} /> {task.completedSubtasksCount || 0}/{task.subtasksCount} việc con</span>
+                        ) : null}
+                        {task.isRecurring && (
+                          <span className="recurring"><Flame size={11} fill="currentColor" /> {task.streakCount || 1} ngày chuỗi</span>
+                        )}
                       </div>
                     )}
+                  </div>
 
-                    <div
+                  <div className="task-list-date-cell" title={formatDateTimeRange(task.startTime, task.endTime)}>
+                    <Clock size={13} />
+                    <span>{formatDateTimeRange(task.startTime, task.endTime)}</span>
+                  </div>
+
+                  <div className="task-list-data-cell">
+                    <span className="task-list-pill" style={{ background: `${cat.colorCode}18`, color: cat.colorCode }} title={cat.name}>
+                      <Tag size={11} /><span>{cat.name}</span>
+                    </span>
+                  </div>
+
+                  <div className="task-list-data-cell">
+                    <span className="task-list-pill" style={{ background: prio.bg, color: prio.color }} title={prio.label}>
+                      <AlertCircle size={11} /><span>{prio.label}</span>
+                    </span>
+                  </div>
+
+                  <div className="task-list-data-cell">
+                    <span
+                      className="task-list-pill"
+                      title={task.eisenhowerQuadrant === 'DO_FIRST' ? 'Q1: Làm ngay' : task.eisenhowerQuadrant === 'DELEGATE' ? 'Q3: Xử lý nhanh' : task.eisenhowerQuadrant === 'DONT_DO' ? 'Q4: Loại bỏ' : 'Q2: Lên lịch'}
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 12,
-                        marginTop: 4,
-                        fontSize: '0.75rem',
-                        color: 'var(--text-3)',
-                        flexWrap: 'wrap',
+                        background: task.eisenhowerQuadrant === 'DO_FIRST' ? '#FEE2E2' : task.eisenhowerQuadrant === 'DELEGATE' ? '#FEF3C7' : task.eisenhowerQuadrant === 'DONT_DO' ? '#F1F5F9' : '#EDE9FE',
+                        color: task.eisenhowerQuadrant === 'DO_FIRST' ? '#DC2626' : task.eisenhowerQuadrant === 'DELEGATE' ? '#D97706' : task.eisenhowerQuadrant === 'DONT_DO' ? '#64748B' : '#4F46E5',
                       }}
                     >
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Clock size={13} style={{ color: 'var(--text-muted)' }} />
-                        <span>{formatDateTimeRange(task.startTime, task.endTime)}</span>
-                      </span>
-
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          padding: '2px 8px',
-                          borderRadius: 6,
-                          background: `${cat.colorCode}18`,
-                          color: cat.colorCode,
-                          fontWeight: 600,
-                          fontSize: '0.72rem',
-                        }}
-                      >
-                        <Tag size={11} />
-                        <span>{cat.name}</span>
-                      </span>
-
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          padding: '2px 8px',
-                          borderRadius: 6,
-                          background: prio.bg,
-                          color: prio.color,
-                          fontWeight: 600,
-                          fontSize: '0.72rem',
-                        }}
-                      >
-                        <AlertCircle size={11} />
-                        <span>{prio.label}</span>
-                      </span>
-                    </div>
+                      {task.eisenhowerQuadrant === 'DO_FIRST' ? 'Q1: Làm ngay' : task.eisenhowerQuadrant === 'DELEGATE' ? 'Q3: Xử lý nhanh' : task.eisenhowerQuadrant === 'DONT_DO' ? 'Q4: Loại bỏ' : 'Q2: Lên lịch'}
+                    </span>
                   </div>
-                </div>
 
-                {/* Right: Actions */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                  <div className="task-list-data-cell">
+                    <span className={`task-list-status-pill ${isCompleted ? 'completed' : isTaskPast(task) ? 'overdue' : task.status === 'IN_PROGRESS' ? 'in-progress' : 'todo'}`}>
+                      {isCompleted ? 'Hoàn thành' : isTaskPast(task) ? 'Quá hạn' : task.status === 'IN_PROGRESS' ? 'Đang làm' : 'Cần làm'}
+                    </span>
+                  </div>
+
+                  <div className="task-list-actions">
                   <button
                     onClick={() => onEditTask(task)}
                     title="Chỉnh sửa công việc"
+                    aria-label="Chỉnh sửa công việc"
                     style={{
                       width: 32,
                       height: 32,
@@ -493,6 +691,7 @@ export default function TasksView({
                   <button
                     onClick={() => setTaskToDelete(task)}
                     title="Xóa công việc"
+                    aria-label="Xóa công việc"
                     style={{
                       width: 32,
                       height: 32,
@@ -511,9 +710,14 @@ export default function TasksView({
                   </button>
                 </div>
               </div>
+            </div>
             );
-          })
+          })}
+          </>
         )}
+      </div>
+        </>
+      )}
       </div>
 
       {/* In-App Confirm Delete Task Modal */}

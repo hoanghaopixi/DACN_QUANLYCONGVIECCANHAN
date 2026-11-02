@@ -38,6 +38,10 @@ public class Notification {
     @Builder.Default
     private Boolean isRead = false;
 
+    @Column(name = "\"DaXoa\"")
+    @Builder.Default
+    private Boolean isDeleted = false;
+
     @Column(name = "\"NgayTao\"")
     @Builder.Default
     private OffsetDateTime createdAt = OffsetDateTime.now();

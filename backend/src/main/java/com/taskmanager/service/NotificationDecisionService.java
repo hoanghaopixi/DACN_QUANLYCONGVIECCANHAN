@@ -16,14 +16,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 /**
  * Thuật toán Quyết định Thông báo Tự động (Smart Notification Decision Engine)
- * Thuật toán này phân tích toàn bộ dữ liệu thực tế từ CSDL
- * (Tasks, Deadlines, TimeBlocks, Trạng thái hoàn thành, Tải công việc, Xung đột lịch và Thời gian thực)
- * để tự động đưa ra các quyết định tạo thông báo phù hợp, lưu trữ vào CSDL PostgreSQL.
+ * Phân tích dữ liệu thực tế từ CSDL để đưa ra các quyết định tạo thông báo phù hợp,
+ * có cơ chế khử trùng lặp vĩnh viễn theo taskId và theo khung 24h đối với gợi ý/nhắc nhở,
+ * tránh tình trạng đổ lại thông báo cũ khi người dùng đã đọc hoặc xóa.
  */
 @Service
 @RequiredArgsConstructor
@@ -35,13 +36,24 @@ public class NotificationDecisionService {
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
 
+    private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm 'ngày' dd/MM");
 
+    private String formatTime(OffsetDateTime dt) {
+        if (dt == null) return "";
+        return dt.atZoneSameInstant(VN_ZONE).format(TIME_FORMATTER);
+    }
+
+    private String formatDateTime(OffsetDateTime dt) {
+        if (dt == null) return "";
+        return dt.atZoneSameInstant(VN_ZONE).format(DATE_TIME_FORMATTER);
+    }
+
     /**
-     * Chạy định kỳ nền mỗi 2 phút cho tất cả người dùng trong hệ thống
+     * Chạy định kỳ quét thông báo nền mỗi 3 phút cho tất cả người dùng
      */
-    @Scheduled(fixedDelay = 120000)
+    @Scheduled(fixedDelay = 180000)
     public void scheduledEvaluationForAllUsers() {
         try {
             List<User> users = userRepository.findAll();
@@ -56,15 +68,14 @@ public class NotificationDecisionService {
     @Transactional
     public List<Notification> evaluateAndGenerateNotifications(Long userId) {
         log.info("Running Notification Decision Engine for userId: {}", userId);
-        OffsetDateTime now = OffsetDateTime.now();
-        OffsetDateTime deduplicationCutoff = now.minusHours(8); // Khử trùng lặp trong vòng 8 tiếng
+        OffsetDateTime now = OffsetDateTime.now(VN_ZONE);
+        OffsetDateTime recent24hCutoff = now.minusHours(24);
 
         List<Task> allTasks = taskRepository.findByUserId(userId);
         List<TimeBlock> allBlocks = timeBlockRepository.findByUserId(userId);
 
         List<Notification> newlyGenerated = new ArrayList<>();
 
-        // Map task id to list of time blocks
         Map<Long, List<TimeBlock>> taskBlockMap = new HashMap<>();
         for (TimeBlock b : allBlocks) {
             if (b.getTaskId() != null) {
@@ -85,32 +96,33 @@ public class NotificationDecisionService {
 
             if (due != null) {
                 if (due.isBefore(now)) {
-                    // Task có due_date đã quá hạn!
-                    long hoursOverdue = Math.max(1, Duration.between(due, now).toHours());
-                    String timeUnit = hoursOverdue >= 24 ? (hoursOverdue / 24) + " ngày" : hoursOverdue + " giờ";
-
-                    boolean alreadyNotified = notificationRepository.existsByUserIdAndTaskIdAndTypeAndCreatedAtAfter(
-                            userId, task.getId(), "alert", deduplicationCutoff);
+                    // Task quá hạn: Khử trùng lặp vĩnh viễn theo taskId - nếu đã từng có thông báo alert cho task này thì KHÔNG tạo lại
+                    boolean alreadyNotified = notificationRepository.existsByUserIdAndTaskIdAndType(
+                            userId, task.getId(), "alert");
 
                     if (!alreadyNotified) {
+                        long hoursOverdue = Math.max(1, Duration.between(due, now).toHours());
+                        String timeUnit = hoursOverdue >= 24 ? (hoursOverdue / 24) + " ngày" : hoursOverdue + " giờ";
+
                         Notification overdueNotice = Notification.builder()
                                 .userId(userId)
                                 .taskId(task.getId())
                                 .type("alert")
                                 .title("⚠️ Quá hạn deadline: " + task.getTitle())
-                                .message("Công việc này đã trễ hạn " + timeUnit + " (hạn chót: " + due.format(DATE_TIME_FORMATTER) + "). Hãy ưu tiên xử lý hoặc sử dụng Trợ lý AI để dời lịch!")
+                                .message("Công việc này đã trễ hạn " + timeUnit + " (hạn chót: " + formatDateTime(due) + "). Hãy ưu tiên xử lý hoặc dời lịch!")
                                 .isRead(false)
+                                .isDeleted(false)
                                 .createdAt(now)
                                 .updatedAt(now)
                                 .build();
                         newlyGenerated.add(overdueNotice);
                     }
                 } else {
-                    // ── THUẬT TOÁN 2: CẢNH BÁO DEADLINE SẮP ĐẾN TRONG VÒNG 12 TIẾNG (IMMINENT DEADLINE ALGORITHM) ──
+                    // ── THUẬT TOÁN 2: CẢNH BÁO DEADLINE SẮP ĐẾN TRONG VÒNG 12 TIẾNG ──
                     long hoursUntilDue = Duration.between(now, due).toHours();
                     if (hoursUntilDue <= 12) {
-                        boolean alreadyNotified = notificationRepository.existsByUserIdAndTaskIdAndTypeAndCreatedAtAfter(
-                                userId, task.getId(), "alert", deduplicationCutoff);
+                        boolean alreadyNotified = notificationRepository.existsByUserIdAndTaskIdAndType(
+                                userId, task.getId(), "alert");
 
                         if (!alreadyNotified) {
                             String remainingText = hoursUntilDue <= 1 
@@ -121,8 +133,9 @@ public class NotificationDecisionService {
                                     .taskId(task.getId())
                                     .type("alert")
                                     .title("⏳ Sắp đến hạn chót: " + task.getTitle())
-                                    .message("Hạn chót vào lúc " + due.format(TIME_FORMATTER) + " hôm nay (còn khoảng " + remainingText + "). Hãy tập trung hoàn thành đúng tiến độ.")
+                                    .message("Hạn chót vào lúc " + formatTime(due) + " hôm nay (còn khoảng " + remainingText + "). Hãy tập trung hoàn thành đúng tiến độ.")
                                     .isRead(false)
+                                    .isDeleted(false)
                                     .createdAt(now)
                                     .updatedAt(now)
                                     .build();
@@ -131,22 +144,23 @@ public class NotificationDecisionService {
                     }
                 }
             } else {
-                // Kiểm tra nếu task chưa xong mà khối thời gian của nó đã kết thúc trong quá khứ (> 2 giờ trước)
+                // Kiểm tra nếu task chưa xong mà khối thời gian của nó đã kết thúc trong quá khứ (> 1 giờ trước)
                 List<TimeBlock> blocks = taskBlockMap.get(task.getId());
                 if (blocks != null && !blocks.isEmpty()) {
                     for (TimeBlock b : blocks) {
                         if (b.getEndTime() != null && b.getEndTime().isBefore(now.minusHours(1))) {
-                            String titleKey = "⚠️ Quá hạn lịch trình: " + task.getTitle();
-                            boolean alreadyNotified = notificationRepository.existsByUserIdAndTitleAndCreatedAtAfter(
-                                    userId, titleKey, deduplicationCutoff);
+                            boolean alreadyNotified = notificationRepository.existsByUserIdAndTaskIdAndType(
+                                    userId, task.getId(), "alert");
                             if (!alreadyNotified) {
+                                String titleKey = "⚠️ Quá hạn lịch trình: " + task.getTitle();
                                 Notification blockOverdueNotice = Notification.builder()
                                         .userId(userId)
                                         .taskId(task.getId())
                                         .type("alert")
                                         .title(titleKey)
-                                        .message("Khung giờ của công việc này đã kết thúc lúc " + b.getEndTime().format(TIME_FORMATTER) + " nhưng vẫn chưa được đánh dấu hoàn thành. Hãy cập nhật tiến độ!")
+                                        .message("Khung giờ của công việc này đã kết thúc lúc " + formatTime(b.getEndTime()) + " nhưng vẫn chưa được đánh dấu hoàn thành.")
                                         .isRead(false)
+                                        .isDeleted(false)
                                         .createdAt(now)
                                         .updatedAt(now)
                                         .build();
@@ -159,29 +173,29 @@ public class NotificationDecisionService {
             }
         }
 
-        // ── THUẬT TOÁN 3: NHẮC NHỞ LỊCH TRÌNH / CUỘC HẸN SẮP DIỄN RA (TIME-BLOCK REMINDER ALGORITHM) ──
+        // ── THUẬT TOÁN 3: NHẮC NHỞ LỊCH TRÌNH SẮP DIỄN RA (TRONG VÒNG 90 PHÚT) ──
         for (TimeBlock block : allBlocks) {
             OffsetDateTime start = block.getStartTime();
             if (start != null) {
                 long minutesUntilStart = Duration.between(now, start).toMinutes();
-                // Bắt đầu trong khoảng từ -10 phút đến +90 phút
                 if (minutesUntilStart >= -10 && minutesUntilStart <= 90) {
                     String titleKey = "🔔 Nhắc nhở: " + block.getTitle();
                     boolean alreadyNotified = notificationRepository.existsByUserIdAndTitleAndCreatedAtAfter(
-                            userId, titleKey, deduplicationCutoff);
+                            userId, titleKey, recent24hCutoff);
 
                     if (!alreadyNotified) {
                         String timeDesc = minutesUntilStart > 0 
-                                ? "sẽ bắt đầu lúc " + start.format(TIME_FORMATTER) + " (khoảng " + minutesUntilStart + " phút nữa)"
-                                : "đang diễn ra (bắt đầu lúc " + start.format(TIME_FORMATTER) + ")";
+                                ? "sẽ bắt đầu lúc " + formatTime(start) + " (khoảng " + minutesUntilStart + " phút nữa)"
+                                : "đang diễn ra (bắt đầu lúc " + formatTime(start) + ")";
 
                         Notification reminderNotice = Notification.builder()
                                 .userId(userId)
                                 .taskId(block.getTaskId())
                                 .type("reminder")
                                 .title(titleKey)
-                                .message("Sự kiện/công việc \"" + block.getTitle() + "\" " + timeDesc + ". Hãy sẵn sàng chuyển sang trạng thái tập trung.")
+                                .message("Sự kiện/công việc \"" + block.getTitle() + "\" " + timeDesc + ". Hãy chuẩn bị sẵn sàng.")
                                 .isRead(false)
+                                .isDeleted(false)
                                 .createdAt(now)
                                 .updatedAt(now)
                                 .build();
@@ -191,30 +205,29 @@ public class NotificationDecisionService {
             }
         }
 
-        // ── THUẬT TOÁN 4: PHÁT HIỆN XUNG ĐỘT LỊCH TRÌNH (SCHEDULE CONFLICT DETECTION ALGORITHM) ──
+        // ── THUẬT TOÁN 4: PHÁT HIỆN XUNG ĐỘT LỊCH TRÌNH ──
         for (int i = 0; i < allBlocks.size(); i++) {
             TimeBlock b1 = allBlocks.get(i);
             if (b1.getStartTime() == null || b1.getEndTime() == null) continue;
-            // Chỉ kiểm tra các block trong tương lai hoặc hôm nay
             if (b1.getEndTime().isBefore(now.minusHours(2))) continue;
 
             for (int j = i + 1; j < allBlocks.size(); j++) {
                 TimeBlock b2 = allBlocks.get(j);
                 if (b2.getStartTime() == null || b2.getEndTime() == null) continue;
 
-                // Kiểm tra chồng lấn: start1 < end2 && start2 < end1
                 if (b1.getStartTime().isBefore(b2.getEndTime()) && b2.getStartTime().isBefore(b1.getEndTime())) {
                     String conflictTitle = "⚠️ Xung đột lịch: " + b1.getTitle() + " & " + b2.getTitle();
                     boolean alreadyNotified = notificationRepository.existsByUserIdAndTitleAndCreatedAtAfter(
-                            userId, conflictTitle, deduplicationCutoff);
+                            userId, conflictTitle, recent24hCutoff);
 
                     if (!alreadyNotified) {
                         Notification conflictNotice = Notification.builder()
                                 .userId(userId)
                                 .type("alert")
                                 .title(conflictTitle)
-                                .message("Phát hiện 2 khối thời gian bị trùng nhau lúc " + b1.getStartTime().format(TIME_FORMATTER) + " - " + b1.getEndTime().format(TIME_FORMATTER) + ". Hãy dời lịch hoặc dùng Trợ lý AI để tự động tách lịch!")
+                                .message("Phát hiện 2 khung giờ bị trùng nhau lúc " + formatTime(b1.getStartTime()) + " - " + formatTime(b1.getEndTime()) + ". Hãy dời lịch để tránh xung đột!")
                                 .isRead(false)
+                                .isDeleted(false)
                                 .createdAt(now)
                                 .updatedAt(now)
                                 .build();
@@ -224,7 +237,7 @@ public class NotificationDecisionService {
             }
         }
 
-        // ── THUẬT TOÁN 5: PHÂN TÍCH TẢI CÔNG VIỆC & ĐỀ XUẤT TỐI ƯU HÓA AI (WORKLOAD & AI ADVICE ALGORITHM) ──
+        // ── THUẬT TOÁN 5: ĐỀ XUẤT TỐI ƯU HÓA AI (TỐI ĐA 1 LẦN / 24 GIỜ) ──
         Set<Long> scheduledTaskIds = new HashSet<>();
         for (TimeBlock tb : allBlocks) {
             if (tb.getTaskId() != null) {
@@ -239,17 +252,17 @@ public class NotificationDecisionService {
                 .count();
 
         if (unscheduledHighPriority > 0) {
-            String aiTitle = "💡 Đề xuất tối ưu hóa từ Trợ lý AI SmartTask";
-            boolean alreadyNotified = notificationRepository.existsByUserIdAndTitleAndCreatedAtAfter(
-                    userId, aiTitle, deduplicationCutoff);
+            boolean alreadyNotifiedAi = notificationRepository.existsByUserIdAndTypeAndCreatedAtAfter(
+                    userId, "ai", recent24hCutoff);
 
-            if (!alreadyNotified) {
+            if (!alreadyNotifiedAi) {
                 Notification aiNotice = Notification.builder()
                         .userId(userId)
                         .type("ai")
-                        .title(aiTitle)
-                        .message("Phát hiện " + unscheduledHighPriority + " công việc ưu tiên cao chưa được ấn định khung giờ trên lịch. Hãy dùng Trợ lý AI để tự động lấp đầy vào các khoảng trống tối ưu.")
+                        .title("💡 Đề xuất tối ưu hóa lịch trình")
+                        .message("Phát hiện " + unscheduledHighPriority + " công việc ưu tiên cao chưa được ấn định khung giờ trên lịch. Hãy dùng tính năng Tự động xếp lịch để tối ưu hóa.")
                         .isRead(false)
+                        .isDeleted(false)
                         .createdAt(now)
                         .updatedAt(now)
                         .build();
@@ -257,22 +270,22 @@ public class NotificationDecisionService {
             }
         }
 
-        // ── THUẬT TOÁN 6: TỔNG KẾT NĂNG SUẤT & TUYÊN DƯƠNG THÀNH TÍCH (MILESTONE & PRODUCTIVITY ALGORITHM) ──
+        // ── THUẬT TOÁN 6: TỔNG KẾT NĂNG SUẤT (TỐI ĐA 1 LẦN / 24 GIỜ) ──
         long completedTasks = allTasks.stream().filter(t -> "COMPLETED".equalsIgnoreCase(t.getStatus())).count();
         if (allTasks.size() > 0 && completedTasks >= 1) {
             double completionRate = ((double) completedTasks / allTasks.size()) * 100;
-            if (completionRate >= 30.0) {
-                String successTitle = "🎉 Tiến độ năng suất đạt " + (int) completionRate + "%";
-                boolean alreadyNotified = notificationRepository.existsByUserIdAndTitleAndCreatedAtAfter(
-                        userId, successTitle, now.minusHours(24));
+            if (completionRate >= 50.0) {
+                boolean alreadyNotifiedSuccess = notificationRepository.existsByUserIdAndTypeAndCreatedAtAfter(
+                        userId, "success", recent24hCutoff);
 
-                if (!alreadyNotified) {
+                if (!alreadyNotifiedSuccess) {
                     Notification successNotice = Notification.builder()
                             .userId(userId)
                             .type("success")
-                            .title(successTitle)
-                            .message("Bạn đã hoàn thành " + completedTasks + "/" + allTasks.size() + " công việc (" + String.format("%.0f", completionRate) + "%). Giữ vững phong độ tập trung này nhé!")
+                            .title("🎉 Đã hoàn thành " + (int) completionRate + "% khối lượng công việc")
+                            .message("Bạn đã hoàn thành " + completedTasks + "/" + allTasks.size() + " công việc. Giữ vững phong độ tập trung nhé!")
                             .isRead(false)
+                            .isDeleted(false)
                             .createdAt(now)
                             .updatedAt(now)
                             .build();
@@ -281,12 +294,13 @@ public class NotificationDecisionService {
             }
         }
 
-        // Lưu các thông báo vừa sinh vào CSDL PostgreSQL
+        // Lưu các thông báo mới tạo vào CSDL
         if (!newlyGenerated.isEmpty()) {
             notificationRepository.saveAll(newlyGenerated);
             log.info("Notification Decision Engine created {} new notifications for user {}", newlyGenerated.size(), userId);
         }
 
-        return notificationRepository.findByUserIdOrderByCreatedAtDesc(userId);
+        // Trả về danh sách thông báo còn hiệu lực (chưa bị xóa) của người dùng
+        return notificationRepository.findActiveByUserId(userId);
     }
 }
