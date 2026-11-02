@@ -1,19 +1,12 @@
 import { useState } from 'react';
-import { X, Lock, Mail, User, Eye, EyeOff, ShieldCheck, Sparkles } from 'lucide-react';
+import { X, Lock, Mail, User, Eye, EyeOff, Sparkles } from 'lucide-react';
 import { authService } from '../services/authService';
+import { validateLoginForm, validateRegisterForm, formatAuthErrorMessage } from '../utils/authValidation';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   onLoginSuccess: (user: { email: string; fullName: string; role: string; token: string }) => void;
-}
-
-// Client-side SHA-256 hash utility
-async function sha256Hex(message: string): Promise<string> {
-  const msgUint8 = new TextEncoder().encode(message);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModalProps) {
@@ -24,30 +17,45 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorField, setErrorField] = useState<'email' | 'password' | 'fullName' | 'confirmPassword' | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [hashedDisplay, setHashedDisplay] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  // Quick fill Admin account
-  const handleQuickFillAdmin = () => {
-    setEmail('admin@gmail.com');
-    setPassword('1');
+  const switchMode = (newMode: 'login' | 'register') => {
+    setMode(newMode);
     setErrorMessage(null);
+    setErrorField(null);
+    setSuccessMessage(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setErrorField(null);
     setSuccessMessage(null);
+
+    // Kiểm tra định dạng & regex trước khi gửi request
+    if (mode === 'login') {
+      const validation = validateLoginForm(email, password);
+      if (!validation.isValid) {
+        setErrorMessage(validation.message || 'Thông tin đăng nhập không hợp lệ.');
+        setErrorField(validation.field || null);
+        return;
+      }
+    } else {
+      const validation = validateRegisterForm(fullName, email, password, confirmPassword);
+      if (!validation.isValid) {
+        setErrorMessage(validation.message || 'Thông tin đăng ký không hợp lệ.');
+        setErrorField(validation.field || null);
+        return;
+      }
+    }
+
     setIsLoading(true);
 
     try {
-      // Visual hash demonstration
-      const hashedPassword = await sha256Hex(password);
-      setHashedDisplay(hashedPassword);
-
       if (mode === 'login') {
         const response = await authService.login({
           email: email.trim(),
@@ -60,18 +68,6 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
           onClose();
         }, 600);
       } else {
-        // Mode: Register
-        if (password !== confirmPassword) {
-          setErrorMessage('Mật khẩu xác nhận không khớp.');
-          setIsLoading(false);
-          return;
-        }
-        if (!fullName.trim()) {
-          setErrorMessage('Vui lòng nhập họ và tên.');
-          setIsLoading(false);
-          return;
-        }
-
         const response = await authService.register({
           fullName: fullName.trim(),
           email: email.trim(),
@@ -85,8 +81,14 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
         }, 800);
       }
     } catch (err: any) {
-      const msg = err.response?.data?.message || err.message || 'Lỗi xác thực hệ thống';
-      setErrorMessage('Lỗi xác thực: ' + msg);
+      const msg = formatAuthErrorMessage(err);
+      setErrorMessage(msg);
+
+      if (err.response?.status === 401) {
+        setErrorField('password');
+      } else if (err.response?.status === 404 || err.response?.status === 409) {
+        setErrorField('email');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -187,10 +189,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
         >
           <button
             type="button"
-            onClick={() => {
-              setMode('login');
-              setErrorMessage(null);
-            }}
+            onClick={() => switchMode('login')}
             style={{
               flex: 1,
               padding: '8px 12px',
@@ -207,10 +206,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
           </button>
           <button
             type="button"
-            onClick={() => {
-              setMode('register');
-              setErrorMessage(null);
-            }}
+            onClick={() => switchMode('register')}
             style={{
               flex: 1,
               padding: '8px 12px',
@@ -227,43 +223,6 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
           </button>
         </div>
 
-        {/* Quick-fill Admin helper banner */}
-        {mode === 'login' && (
-          <div
-            style={{
-              margin: '14px 24px 0',
-              padding: '10px 14px',
-              borderRadius: 10,
-              background: 'var(--primary-bg)',
-              border: '1px solid rgba(108, 92, 231, 0.2)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 8,
-            }}
-          >
-            <div style={{ fontSize: '0.78rem', color: 'var(--primary)', lineHeight: 1.4 }}>
-              <strong>Tài khoản sẵn có:</strong> admin@gmail.com | pass: <strong>1</strong>
-            </div>
-            <button
-              type="button"
-              onClick={handleQuickFillAdmin}
-              style={{
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                color: '#fff',
-                background: 'var(--primary)',
-                padding: '4px 10px',
-                borderRadius: 6,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Điền nhanh
-            </button>
-          </div>
-        )}
-
         {/* Form Body */}
         <form onSubmit={handleSubmit} style={{ padding: '16px 24px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
           {/* Full Name for register */}
@@ -279,12 +238,17 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
                   required
                   placeholder="VD: Nguyễn Văn A"
                   value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
+                  onChange={(e) => {
+                    setFullName(e.target.value);
+                    if (errorMessage) setErrorMessage(null);
+                    if (errorField === 'fullName') setErrorField(null);
+                  }}
                   style={{
                     width: '100%',
                     padding: '10px 12px 10px 38px',
                     borderRadius: 8,
-                    border: '1px solid var(--border)',
+                    border: errorField === 'fullName' ? '1.5px solid #EF4444' : '1px solid var(--border)',
+                    boxShadow: errorField === 'fullName' ? '0 0 0 3px rgba(239, 68, 68, 0.15)' : 'none',
                     background: 'var(--surface)',
                     color: 'var(--text)',
                     fontSize: '0.88rem',
@@ -307,12 +271,17 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
                 required
                 placeholder="name@example.com"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (errorMessage) setErrorMessage(null);
+                  if (errorField === 'email') setErrorField(null);
+                }}
                 style={{
                   width: '100%',
                   padding: '10px 12px 10px 38px',
                   borderRadius: 8,
-                  border: '1px solid var(--border)',
+                  border: errorField === 'email' ? '1.5px solid #EF4444' : '1px solid var(--border)',
+                  boxShadow: errorField === 'email' ? '0 0 0 3px rgba(239, 68, 68, 0.15)' : 'none',
                   background: 'var(--surface)',
                   color: 'var(--text)',
                   fontSize: '0.88rem',
@@ -332,14 +301,19 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
               <input
                 type={showPassword ? 'text' : 'password'}
                 required
-                placeholder="Nhập mật khẩu..."
+                placeholder={mode === 'login' ? 'Nhập mật khẩu...' : 'Tạo mật khẩu...'}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (errorMessage) setErrorMessage(null);
+                  if (errorField === 'password') setErrorField(null);
+                }}
                 style={{
                   width: '100%',
                   padding: '10px 38px 10px 38px',
                   borderRadius: 8,
-                  border: '1px solid var(--border)',
+                  border: errorField === 'password' ? '1.5px solid #EF4444' : '1px solid var(--border)',
+                  boxShadow: errorField === 'password' ? '0 0 0 3px rgba(239, 68, 68, 0.15)' : 'none',
                   background: 'var(--surface)',
                   color: 'var(--text)',
                   fontSize: '0.88rem',
@@ -355,6 +329,8 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
                   top: 10,
                   color: 'var(--text-muted)',
                   cursor: 'pointer',
+                  background: 'none',
+                  border: 'none',
                 }}
               >
                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -373,14 +349,19 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
                 <input
                   type={showPassword ? 'text' : 'password'}
                   required
-                  placeholder="Nhập lại mật khẩu..."
+                  placeholder="Nhập lại mật khẩu để xác nhận..."
                   value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  onChange={(e) => {
+                    setConfirmPassword(e.target.value);
+                    if (errorMessage) setErrorMessage(null);
+                    if (errorField === 'confirmPassword') setErrorField(null);
+                  }}
                   style={{
                     width: '100%',
                     padding: '10px 12px 10px 38px',
                     borderRadius: 8,
-                    border: '1px solid var(--border)',
+                    border: errorField === 'confirmPassword' ? '1.5px solid #EF4444' : '1px solid var(--border)',
+                    boxShadow: errorField === 'confirmPassword' ? '0 0 0 3px rgba(239, 68, 68, 0.15)' : 'none',
                     background: 'var(--surface)',
                     color: 'var(--text)',
                     fontSize: '0.88rem',
@@ -390,26 +371,6 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
               </div>
             </div>
           )}
-
-          {/* Password hash security badge */}
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 4,
-              marginTop: -4,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-              <ShieldCheck size={14} style={{ color: 'var(--success)' }} />
-              <span>Mật khẩu được băm (Hash Encryption) bảo mật trước khi xác thực.</span>
-            </div>
-            {hashedDisplay && (
-              <div style={{ fontSize: '0.68rem', fontFamily: 'monospace', color: 'var(--primary)', padding: '2px 6px', background: 'var(--border-light)', borderRadius: 4, wordBreak: 'break-all' }}>
-                Hash SHA-256: {hashedDisplay.slice(0, 36)}...
-              </div>
-            )}
-          </div>
 
           {/* Error / Success alert */}
           {errorMessage && (

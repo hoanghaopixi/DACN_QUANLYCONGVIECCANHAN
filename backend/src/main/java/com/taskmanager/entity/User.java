@@ -32,7 +32,7 @@ public class User {
     @Column(name = "\"SoDienThoai\"", length = 20)
     private String phoneNumber;
 
-    @Column(name = "\"AnhDaiDien\"", length = 500)
+    @Column(name = "\"AnhDaiDien\"", columnDefinition = "TEXT")
     private String avatarUrl;
 
     @Column(name = "\"NguonXacThuc\"", length = 20)

@@ -21,11 +21,18 @@ public class TaskDto {
     private String note;
     private String priority;
     private String status;
+    private String eisenhowerQuadrant; // DO_FIRST, SCHEDULE, DELEGATE, DONT_DO
     private OffsetDateTime startTime;
     private OffsetDateTime endTime;
     private Integer estimatedDurationMinutes;
+    private Integer actualDurationMinutes;
     private Boolean isRecurring;
+    private String recurrenceRule; // DAILY, WEEKDAYS, WEEKLY, MONTHLY
+    private Integer streakCount;
     private String colorCode;
     private Boolean isAutoScheduled;
     private String subtext;
+    private Integer subtasksCount;
+    private Integer completedSubtasksCount;
+    private Boolean isLocked;
 }

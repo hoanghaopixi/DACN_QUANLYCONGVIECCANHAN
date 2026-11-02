@@ -79,6 +79,10 @@ public class Task {
     @Column(name = "\"CongViecChaId\"")
     private Long parentTaskId;
 
+    @Column(name = "\"KhoaRiengTu\"")
+    @Builder.Default
+    private Boolean isLocked = false;
+
     @Column(name = "\"HoanThanhLuc\"")
     private OffsetDateTime completedAt;
 

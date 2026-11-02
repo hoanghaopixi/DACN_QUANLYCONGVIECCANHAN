@@ -21,7 +21,7 @@ public class GeminiApiClient {
     @Value("${gemini.api.key:YOUR_GEMINI_API_KEY_HERE}")
     private String apiKey;
 
-    @Value("${gemini.api.model:gemini-1.5-flash}")
+    @Value("${gemini.api.model:gemini-3.5-flash-lite}")
     private String model;
 
     @Value("${gemini.api.url:https://generativelanguage.googleapis.com/v1beta/models}")

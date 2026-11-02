@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Bell, CheckCheck, Clock, Sparkles, CheckCircle2, AlertTriangle, Trash2, X, RefreshCw } from 'lucide-react';
 import { notificationService, NotificationItem } from '../services/notificationService';
+import { formatDateDDMMYYYY } from '../utils/dateTimeFormat';
 
 export type { NotificationItem };
 
@@ -28,7 +29,7 @@ function formatRelativeTime(dateStr?: string): string {
     if (diffHours < 24) return `${diffHours} giờ trước`;
     if (diffDays === 1) return 'Hôm qua';
     if (diffDays < 7) return `${diffDays} ngày trước`;
-    return `${created.getDate().toString().padStart(2, '0')}/${(created.getMonth() + 1).toString().padStart(2, '0')}`;
+    return formatDateDDMMYYYY(created);
   } catch {
     return 'Gần đây';
   }
@@ -72,13 +73,25 @@ export default function NotificationDropdown({
     }
   };
 
+  const [shouldRender, setShouldRender] = useState(isOpen);
+  const [isExiting, setIsExiting] = useState(false);
+
   useEffect(() => {
     if (isOpen) {
+      setShouldRender(true);
+      setIsExiting(false);
       fetchNotifications();
+    } else if (shouldRender) {
+      setIsExiting(true);
+      const timer = setTimeout(() => {
+        setShouldRender(false);
+        setIsExiting(false);
+      }, 200);
+      return () => clearTimeout(timer);
     }
-  }, [isOpen, fetchNotifications]);
+  }, [isOpen, fetchNotifications, shouldRender]);
 
-  if (!isOpen) return null;
+  if (!shouldRender) return null;
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
@@ -164,7 +177,9 @@ export default function NotificationDropdown({
         border: '1px solid var(--border)',
         zIndex: 1000,
         overflow: 'hidden',
-        animation: 'slideUpToast 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+        animation: isExiting
+          ? 'dropdownFadeOut 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards'
+          : 'slideUpToast 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
       }}
       onClick={(e) => e.stopPropagation()}
     >
@@ -303,7 +318,7 @@ export default function NotificationDropdown({
             }}
           >
             <Bell size={32} style={{ margin: '0 auto 10px', opacity: 0.35 }} />
-            <div>Không có thông báo mới nào trong CSDL</div>
+            <div>Không có thông báo!</div>
           </div>
         ) : (
           notifications.map((item) => (
@@ -430,9 +445,7 @@ export default function NotificationDropdown({
           justifyContent: 'space-between',
         }}
       >
-        <span title="Thuật toán phân tích tự động dựa trên hạn chót (Deadline), lịch trình và tiến độ thực tế">
-          ⚡ Thuật toán Quyết định Tự động (PostgreSQL)
-        </span>
+
         <span style={{ fontWeight: 600 }}>{notifications.length} thông báo</span>
       </div>
     </div>

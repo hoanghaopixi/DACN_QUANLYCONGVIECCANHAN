@@ -8,6 +8,7 @@
 -- ==============================================================================
 
 -- Drop tables if exists (theo thứ tự khóa ngoại)
+DROP TABLE IF EXISTS nhatkythoiquen CASCADE;
 DROP TABLE IF EXISTS thongbao CASCADE;
 DROP TABLE IF EXISTS nhatkynangsuat CASCADE;
 DROP TABLE IF EXISTS nhatkyai CASCADE;
@@ -68,6 +69,9 @@ CREATE TABLE caidatnguoidung (
     "TuDongDoiLich" BOOLEAN DEFAULT TRUE,        -- Tự động dời lịch khi trễ việc
     "MuiGio" VARCHAR(50) DEFAULT 'Asia/Ho_Chi_Minh',
     "GiaoDien" VARCHAR(20) DEFAULT 'LIGHT',       -- LIGHT, DARK, SYSTEM
+    "HinhNenUrl" TEXT,
+    "LoaiHinhNen" VARCHAR(20) DEFAULT 'NONE',    -- NONE, IMAGE, VIDEO
+    "DoPhuToi" INT DEFAULT 50,                   -- Độ phủ tối 0-100%
     "NgayTao" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     "NgayCapNhat" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -125,6 +129,7 @@ CREATE TABLE congviec (
     "LapLai" BOOLEAN DEFAULT FALSE,                       -- Việc lặp lại
     "QuyTacLapLai" VARCHAR(100),                         -- VD: DAILY, WEEKLY_MON_WED_FRI, MONTHLY
     "CongViecChaId" BIGINT REFERENCES congviec("id") ON DELETE CASCADE, -- Quan hệ cha-con
+    "KhoaRiengTu" BOOLEAN DEFAULT FALSE,                  -- Khóa riêng tư bảo vệ bằng mật khẩu
     "HoanThanhLuc" TIMESTAMPTZ,
     "NgayTao" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     "NgayCapNhat" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -160,6 +165,7 @@ CREATE TABLE khoithoigian (
     "TrangThai" VARCHAR(20) DEFAULT 'SCHEDULED',   -- SCHEDULED, IN_PROGRESS, COMPLETED, SKIPPED, CANCELLED
     "MaMau" VARCHAR(20),
     "GhiChu" TEXT,
+    "KhoaRiengTu" BOOLEAN DEFAULT FALSE,           -- Khóa riêng tư bảo mật
     "NgayTao" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     "NgayCapNhat" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -230,6 +236,18 @@ CREATE TABLE nhatkynangsuat (
     CONSTRAINT uq_nhatkynangsuat_ngaybaocao UNIQUE ("NguoiDungId", "NgayBaoCao")
 );
 
+-- 16. Bảng NHATKYTHOIQUEN (Nhật ký theo dõi thói quen hằng ngày)
+CREATE TABLE nhatkythoiquen (
+    "id" BIGSERIAL PRIMARY KEY,
+    "NguoiDungId" BIGINT NOT NULL REFERENCES nguoidung("id") ON DELETE CASCADE,
+    "CongViecId" BIGINT NOT NULL REFERENCES congviec("id") ON DELETE CASCADE,
+    "NgayGhiNhan" DATE NOT NULL,
+    "TrangThai" VARCHAR(20) DEFAULT 'COMPLETED', -- COMPLETED, SKIPPED
+    "GhiChu" TEXT,
+    "NgayTao" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_nhatkythoiquen_task_date UNIQUE ("CongViecId", "NgayGhiNhan")
+);
+
 -- ==============================================================================
 -- INDEXES TỐI ƯU HÓA HIỆU NĂNG TRUY VẤN
 -- ==============================================================================
@@ -240,6 +258,8 @@ CREATE INDEX idx_khoithoigian_nguoidung_thoigian ON khoithoigian("NguoiDungId", 
 CREATE INDEX idx_phientaptrung_nguoidung_batdau ON phientaptrung("NguoiDungId", "ThoiGianBatDau");
 CREATE INDEX idx_nhacnho_dagui ON nhacnho("ThoiGianNhac") WHERE "DaGui" = FALSE;
 CREATE INDEX idx_thongbao_nguoidung_dadoc ON thongbao("NguoiDungId", "DaDoc");
+CREATE INDEX idx_nhatkythoiquen_nguoidung ON nhatkythoiquen("NguoiDungId");
+CREATE INDEX idx_nhatkythoiquen_congviec ON nhatkythoiquen("CongViecId");
 
 -- ==============================================================================
 -- DỮ LIỆU MẪU BAN ĐẦU (SEED DATA)

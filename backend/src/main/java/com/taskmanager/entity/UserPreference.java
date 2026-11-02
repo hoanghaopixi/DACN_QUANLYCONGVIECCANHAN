@@ -42,18 +42,6 @@ public class UserPreference {
     @Builder.Default
     private String peakProductivityTime = "MORNING"; // MORNING, AFTERNOON, EVENING
 
-    @Column(name = "\"ThoiGianPomodoroMacDinh\"")
-    @Builder.Default
-    private Integer defaultPomodoroMinutes = 25;
-
-    @Column(name = "\"NghiNganMacDinh\"")
-    @Builder.Default
-    private Integer defaultShortBreakMinutes = 5;
-
-    @Column(name = "\"NghiDaiMacDinh\"")
-    @Builder.Default
-    private Integer defaultLongBreakMinutes = 15;
-
     @Column(name = "\"TuDongDoiLich\"")
     @Builder.Default
     private Boolean autoReschedule = true;
@@ -65,6 +53,17 @@ public class UserPreference {
     @Column(name = "\"GiaoDien\"", length = 20)
     @Builder.Default
     private String theme = "LIGHT"; // LIGHT, DARK, SYSTEM
+
+    @Column(name = "\"HinhNenUrl\"", columnDefinition = "TEXT")
+    private String backgroundUrl;
+
+    @Column(name = "\"LoaiHinhNen\"", length = 20)
+    @Builder.Default
+    private String backgroundType = "NONE"; // NONE, IMAGE, VIDEO
+
+    @Column(name = "\"DoPhuToi\"")
+    @Builder.Default
+    private Integer overlayDarkness = 50; // 0 to 100 percentage (default 50%)
 
     @Column(name = "\"NgayTao\"")
     @Builder.Default

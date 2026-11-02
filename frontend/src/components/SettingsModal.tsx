@@ -3,6 +3,8 @@ import {
   X, User, Mail, Phone, ShieldCheck, Clock,
   Sliders, Save, CheckCircle2, Moon, Sun
 } from 'lucide-react';
+import Time24Input from './Time24Input';
+import HoverSelect from './HoverSelect';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -333,20 +335,9 @@ export default function SettingsModal({
                   <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-2)', marginBottom: 6 }}>
                     Giờ bắt đầu làm việc
                   </label>
-                  <input
-                    type="time"
+                  <Time24Input
                     value={workStartTime}
-                    onChange={(e) => setWorkStartTime(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '9px 12px',
-                      borderRadius: 8,
-                      border: '1px solid var(--border)',
-                      background: 'var(--surface)',
-                      color: 'var(--text)',
-                      fontSize: '0.88rem',
-                      outline: 'none',
-                    }}
+                    onChange={(val) => setWorkStartTime(val)}
                   />
                 </div>
 
@@ -354,20 +345,10 @@ export default function SettingsModal({
                   <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-2)', marginBottom: 6 }}>
                     Giờ kết thúc làm việc
                   </label>
-                  <input
-                    type="time"
+                  <Time24Input
                     value={workEndTime}
-                    onChange={(e) => setWorkEndTime(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '9px 12px',
-                      borderRadius: 8,
-                      border: '1px solid var(--border)',
-                      background: 'var(--surface)',
-                      color: 'var(--text)',
-                      fontSize: '0.88rem',
-                      outline: 'none',
-                    }}
+                    align="right"
+                    onChange={(val) => setWorkEndTime(val)}
                   />
                 </div>
               </div>
@@ -408,7 +389,7 @@ export default function SettingsModal({
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-2)', marginBottom: 6 }}>
                   Thời gian đệm nghỉ giữa các việc
                 </label>
-                <select
+                <HoverSelect
                   value={bufferTime}
                   onChange={(e) => setBufferTime(Number(e.target.value))}
                   style={{
@@ -424,9 +405,9 @@ export default function SettingsModal({
                 >
                   <option value={5}>5 phút (Nghỉ ngắn)</option>
                   <option value={10}>10 phút</option>
-                  <option value={15}>15 phút (Khuyên dùng - Chuẩn Pomodoro)</option>
+                  <option value={15}>15 phút (Khuyên dùng)</option>
                   <option value={30}>30 phút (Nghỉ dài)</option>
-                </select>
+                </HoverSelect>
               </div>
 
               <div>
@@ -471,7 +452,7 @@ export default function SettingsModal({
                   padding: '12px 16px',
                   borderRadius: 10,
                   background: 'var(--primary-bg)',
-                  border: '1px solid rgba(108, 92, 231, 0.2)',
+                  border: '1px solid color-mix(in srgb, var(--primary) 20%, transparent)',
                   fontSize: '0.82rem',
                   color: 'var(--text-2)',
                   lineHeight: 1.5,
@@ -588,11 +569,11 @@ export default function SettingsModal({
                 padding: '10px 20px',
                 borderRadius: 8,
                 background: 'var(--primary)',
-                color: '#fff',
+                color: 'var(--on-primary)',
                 fontSize: '0.88rem',
                 fontWeight: 600,
                 cursor: 'pointer',
-                boxShadow: '0 2px 6px rgba(108, 92, 231, 0.3)',
+                boxShadow: 'none',
               }}
             >
               <Save size={16} />

@@ -3,19 +3,27 @@ package com.taskmanager.service.impl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.taskmanager.client.gemini.GeminiApiClient;
+import com.taskmanager.dto.AutoScheduleDto;
+import com.taskmanager.dto.SubtaskDto;
 import com.taskmanager.dto.request.AiParseTaskRequest;
 import com.taskmanager.dto.response.AiParseTaskResponse;
+import com.taskmanager.entity.AiSchedulingLog;
+import com.taskmanager.entity.Subtask;
+import com.taskmanager.entity.Task;
 import com.taskmanager.entity.TimeBlock;
-import com.taskmanager.repository.TimeBlockRepository;
+import com.taskmanager.entity.UserPreference;
+import com.taskmanager.repository.*;
 import com.taskmanager.service.AiService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -23,11 +31,25 @@ public class AiServiceImpl implements AiService {
 
     private final GeminiApiClient geminiApiClient;
     private final TimeBlockRepository timeBlockRepository;
+    private final TaskRepository taskRepository;
+    private final SubtaskRepository subtaskRepository;
+    private final UserPreferenceRepository userPreferenceRepository;
+    private final AiSchedulingLogRepository aiSchedulingLogRepository;
     private final ObjectMapper objectMapper;
 
-    public AiServiceImpl(GeminiApiClient geminiApiClient, TimeBlockRepository timeBlockRepository, ObjectMapper objectMapper) {
+    public AiServiceImpl(GeminiApiClient geminiApiClient,
+                         TimeBlockRepository timeBlockRepository,
+                         TaskRepository taskRepository,
+                         SubtaskRepository subtaskRepository,
+                         UserPreferenceRepository userPreferenceRepository,
+                         AiSchedulingLogRepository aiSchedulingLogRepository,
+                         ObjectMapper objectMapper) {
         this.geminiApiClient = geminiApiClient;
         this.timeBlockRepository = timeBlockRepository;
+        this.taskRepository = taskRepository;
+        this.subtaskRepository = subtaskRepository;
+        this.userPreferenceRepository = userPreferenceRepository;
+        this.aiSchedulingLogRepository = aiSchedulingLogRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -65,7 +87,7 @@ public class AiServiceImpl implements AiService {
 
         String trimmed = prompt.trim();
 
-        // Kiểm tra từ ngữ thô tục / nói bậy / chửi thề
+        // Kiểm tra từ ngữ thô tục / nói bậy / chửi thề (Lớp bảo vệ trực tiếp để phản hồi siêu tốc)
         if (PROFANITY_PATTERN.matcher(trimmed).find()) {
             return AiParseTaskResponse.builder()
                     .isValidTask(false)
@@ -74,25 +96,19 @@ public class AiServiceImpl implements AiService {
                     .build();
         }
 
-        // Kiểm tra câu chào hỏi / nói chơi / thử mic
-        if (CASUAL_GREETING_PATTERN.matcher(trimmed).matches()) {
+        // Không chặn các câu chào hỏi/nói chuyện ("Hello", "Bạn khỏe không",...) ở đây
+        // để chuyển tiếp đến Gemini phân tích và trả lời tự nhiên theo đúng ngữ cảnh!
+
+        // Kiểm tra chuỗi toàn ký tự đặc biệt vô nghĩa
+        if (isGibberish(trimmed)) {
             return AiParseTaskResponse.builder()
                     .isValidTask(false)
-                    .validationType("GREETING")
-                    .validationMessage("Chào bạn! SmartTask AI đã sẵn sàng hỗ trợ. Hãy nhập hoặc nói cụ thể công việc cần lên lịch nhé (ví dụ: 'Học từ vựng tiếng Anh 8h tối mai' hoặc 'Chạy bộ 30 phút sáng mai').")
+                    .validationType("CHAT")
+                    .validationMessage("Chào bạn! SmartTask AI đã sẵn sàng hỗ trợ. Hãy nhập hoặc nói cụ thể công việc cần lên lịch nhé (ví dụ: 'Học tiếng Anh lúc 8h tối mai').")
                     .build();
         }
 
-        // Kiểm tra chuỗi vô nghĩa hoặc quá ngắn (dưới 3 ký tự không phải công việc)
-        if (trimmed.length() < 3 || isGibberish(trimmed)) {
-            return AiParseTaskResponse.builder()
-                    .isValidTask(false)
-                    .validationType("NONSENSE")
-                    .validationMessage("Nội dung chưa đủ thông tin công việc để lên lịch. Bạn hãy mô tả rõ công việc cần làm (ví dụ: 'Họp nhóm đồ án lúc 9h sáng thứ 6').")
-                    .build();
-        }
-
-        return null; // Nội dung hợp lệ
+        return null; // Tiếp tục gửi Gemini hoặc bộ bóc tách heuristic
     }
 
     private boolean isGibberish(String text) {
@@ -207,26 +223,31 @@ public class AiServiceImpl implements AiService {
                             + "• Thứ hiện tại: %s (ISO DayOfWeek = %d, trong đó 1=Thứ Hai, 7=Chủ Nhật)\n"
                             + "• Bản đồ tuần hiện tại:\n%s\n"
                             + "\n"
-                            + "═══ NHIỆM VỤ QUAN TRỌNG NHẤT ═══\n"
-                            + "Phân tích câu lệnh tiếng Việt tự nhiên của người dùng:\n"
-                            + "1) Câu lệnh có thể chứa 1 HOẶC NHIỀU CÔNG VIỆC CẦN LÊN LỊCH.\n"
-                            + "   Ví dụ: 'Hội họp bạn bè 8h sáng nay rồi đi 9h đi chợ' chứa 2 việc: 1) 'Hội họp bạn bè' lúc 8h, 2) 'Đi chợ' lúc 9h.\n"
-                            + "   Ví dụ: 'Sáng mai 7h chạy bộ 45 phút, 9h họp team, chiều 14h gặp khách' chứa 3 việc: 1) 'Chạy bộ' 7h, 2) 'Họp team' 9h, 3) 'Gặp khách hàng' 14h.\n"
-                            + "2) BẠN PHẢI NHẬN DIỆN, BÓC TÁCH VÀ PHÂN CHIA ĐẦY ĐỦ TẤT CẢ CÁC CÔNG VIỆC ĐÓ thành từng phần tử trong mảng `tasks`.\n"
-                            + "3) Nếu câu lệnh chỉ có 1 công việc, mảng `tasks` sẽ có 1 phần tử.\n"
-                            + "4) Nếu câu lệnh là câu chào ('alo alo', 'xin chào'), nói bậy, nói chơi vô nghĩa → đặt `isValidTask: false`, `tasks: []`.\n"
+                            + "═══ PHÂN LOẠI CÂU LỆNH & QUYẾT ĐỊNH CỜ FLAG (BẮT BUỘC) ═══\n"
+                            + "Bạn hãy phân tích câu lệnh của người dùng và quyết định cờ flag `validationType`:\n"
+                            + "1) 'INAPPROPRIATE': Nếu câu lệnh chứa từ ngữ thô tục, chửi thề, tục tĩu, lăng mạ, khiếm nhã (ví dụ: dm, dcm, vcl, cc, cút, mẹ mày, chửi bới...). Đặt `isValidTask: false`, `validationType: 'INAPPROPRIATE'`, `tasks: []`, `validationMessage: 'Nội dung chứa từ ngữ không phù hợp chuẩn mực để đưa vào lịch trình cá nhân. Vui lòng sử dụng ngôn từ lịch sự và nhập công việc bạn muốn thực hiện.'`.\n"
+                            + "2) 'CHAT': Nếu câu lệnh là câu chào ('Hello', 'Xin chào', 'Hi', 'Alo'), hỏi thăm ('Bạn khỏe không?', 'Hôm nay thế nào?'), nói chuyện phiếm hoặc câu hỏi không liên quan đến lên lịch ('Thời tiết hôm nay', 'Bạn tên là gì', 'Bạn làm được gì', 'Cảm ơn nhé', v.v.). Đặt `isValidTask: false`, `validationType: 'CHAT'`, `tasks: []`. Trong `validationMessage`: Hãy trả lời tự nhiên, ngắn gọn, thân thiện theo đúng ngữ cảnh câu hỏi của người dùng như một chatbot thân thiện, kèm lời mời nhập công việc cần lên lịch (Ví dụ nếu hỏi 'Bạn khỏe không?' -> 'Mình là trợ lý ảo nên luôn tràn đầy năng lượng để đồng hành cùng bạn nè! Hôm nay bạn có kế hoạch hay công việc gì cần xếp lịch không?'; nếu chào 'Hello' -> 'Chào bạn! SmartTask AI rất vui được hỗ trợ bạn. Bạn có công việc gì cần mình lên lịch hôm nay không?').\n"
+                            + "3) 'VALID': Nếu câu lệnh chứa 1 hoặc nhiều công việc cụ thể cần lên lịch. Đặt `isValidTask: true`, `validationType: 'VALID'`, `validationMessage: null`, `tasks: [danh sách các công việc]`.\n"
                             + "\n"
-                            + "═══ QUY TẮC CHO TỪNG CÔNG VIỆC TRONG `tasks` ═══\n"
-                            + "▸ title (string, BẮT BUỘC): Tiêu đề ngắn gọn, bản chất công việc. Viết hoa chữ cái đầu. TUYỆT ĐỐI KHÔNG chứa: ngày/tháng, thứ, giờ, thời lượng, độ ưu tiên.\n"
-                            + "▸ categoryType (string, BẮT BUỘC): chỉ 1 trong 4: 'WORK' | 'STUDY' | 'HEALTH' | 'ENTERTAINMENT'. (Ví dụ: 'Đi chợ' -> WORK, 'Hội họp bạn bè' -> ENTERTAINMENT, 'Chạy bộ' -> HEALTH, 'Học bài' -> STUDY)\n"
-                            + "▸ startTime (string ISO-8601, BẮT BUỘC): YYYY-MM-DDTHH:mm:ss+07:00 theo đúng ngày và giờ suy luận từ câu lệnh.\n"
-                            + "▸ estimatedDurationMinutes (integer, BẮT BUỘC): Số phút ước tính. Nếu không nói rõ: HEALTH->45, STUDY->90, WORK->60, ENTERTAINMENT->60. Nếu việc sau bắt đầu lúc X và việc trước lúc Y, thời lượng việc trước có thể tính bằng X - Y.\n"
-                            + "▸ priority (string, BẮT BUỘC): 'URGENT' | 'HIGH' | 'MEDIUM' | 'LOW'.\n"
-                            + "▸ isFixedTime (boolean): true nếu có giờ chỉ định cụ thể, false nếu linh hoạt.\n"
-                            + "▸ note (string): 1 câu giải thích ngắn gọn ngữ cảnh và thời gian.\n"
+                            + "═══ NHIỆM VỤ BÓC TÁCH CÔNG VIỆC KHI validationType = 'VALID' ═══\n"
+                            + "1) Câu lệnh có thể chứa 1 HOẶC NHIỀU CÔNG VIỆC CẦN LÊN LỊCH. Bạn PHẢI bóc tách đầy đủ tất cả các việc vào mảng `tasks`.\n"
+                            + "2) Cho từng công việc trong `tasks`:\n"
+                            + "   ▸ title (string, BẮT BUỘC): Tiêu đề ngắn gọn, bản chất công việc. Viết hoa chữ cái đầu. TUYỆT ĐỐI KHÔNG chứa: ngày/tháng, thứ, giờ, thời lượng, độ ưu tiên.\n"
+                            + "   ▸ categoryType (string, BẮT BUỘC): chỉ 1 trong 4: 'WORK' | 'STUDY' | 'HEALTH' | 'ENTERTAINMENT'.\n"
+                            + "   ▸ startTime (string ISO-8601, BẮT BUỘC): YYYY-MM-DDTHH:mm:ss+07:00 theo đúng ngày và giờ suy luận từ câu lệnh.\n"
+                            + "   ▸ estimatedDurationMinutes (integer, BẮT BUỘC): Số phút ước tính. Nếu không nói rõ: HEALTH->45, STUDY->90, WORK->60, ENTERTAINMENT->60.\n"
+                            + "   ▸ priority (string, BẮT BUỘC): 'URGENT' | 'HIGH' | 'MEDIUM' | 'LOW'.\n"
+                            + "   ▸ isFixedTime (boolean): true nếu có giờ chỉ định cụ thể, false nếu linh hoạt.\n"
+                            + "   ▸ note (string): 1 câu giải thích ngắn gọn ngữ cảnh và thời gian.\n"
                             + "\n"
                             + "═══ ĐẦU RA JSON BẮT BUỘC (KHÔNG MARKDOWN) ═══\n"
-                            + "Trả về 1 JSON object chuẩn gồm các khóa: isValidTask (boolean), validationMessage (string), tasks (array các object công việc như trên).",
+                            + "Trả về 1 JSON object chuẩn gồm các khóa:\n"
+                            + "{\n"
+                            + "  \"isValidTask\": boolean,\n"
+                            + "  \"validationType\": \"VALID\" | \"INAPPROPRIATE\" | \"CHAT\",\n"
+                            + "  \"validationMessage\": string hoặc null,\n"
+                            + "  \"tasks\": [ ... ]\n"
+                            + "}",
                     dayOfWeekName, dateStr, dayOfWeekName, currentDow.getValue(), weekCalendar);
 
             Optional<String> geminiResult = geminiApiClient.generateJsonResponse(systemInstruction, prompt);
@@ -244,15 +265,19 @@ public class AiServiceImpl implements AiService {
 
                 JsonNode node = objectMapper.readTree(jsonText);
                 boolean isValidTask = node.has("isValidTask") ? node.path("isValidTask").asBoolean(true) : true;
+                String valType = node.path("validationType").asText("").trim().toUpperCase();
                 String validationMsg = node.path("validationMessage").asText(null);
 
-                if (!isValidTask) {
+                if (!isValidTask || "INAPPROPRIATE".equals(valType) || "CHAT".equals(valType) || "GREETING".equals(valType)) {
+                    String finalValType = "INAPPROPRIATE".equals(valType) ? "INAPPROPRIATE" : "CHAT";
                     return AiParseTaskResponse.builder()
                             .isValidTask(false)
-                            .validationType("GREETING")
+                            .validationType(finalValType)
                             .validationMessage(validationMsg != null && !validationMsg.isBlank()
                                     ? validationMsg
-                                    : "Chào bạn! Hãy nhập cụ thể công việc bạn muốn lên lịch nhé (ví dụ: 'Học tiếng Anh lúc 8h tối mai').")
+                                    : ("INAPPROPRIATE".equals(finalValType)
+                                            ? "Nội dung chứa từ ngữ không phù hợp chuẩn mực để đưa vào lịch trình cá nhân. Vui lòng sử dụng ngôn từ lịch sự và nhập công việc bạn muốn thực hiện."
+                                            : "Chào bạn! SmartTask AI rất vui được hỗ trợ bạn. Bạn có công việc gì cần lên lịch hôm nay không?"))
                             .build();
                 }
 
@@ -419,6 +444,22 @@ public class AiServiceImpl implements AiService {
         normalized = normalized.replaceAll("(?i)\\b(\\d+)h(\\d{1,2})p(?:h|hút)?\\b", "$1h$2");
 
         String lower = normalized.toLowerCase();
+
+        // Kiểm tra câu chào hỏi / trò chuyện thông thường trong fallback heuristic
+        if (CASUAL_GREETING_PATTERN.matcher(prompt.trim()).matches()
+                || lower.matches("^(?:hello|hi|xin chào|chào|bạn khỏe không|ban khoe khong|bạn tên gì|alo|alo alo)[\\s!?,.~-]*$")) {
+            String chatReply = "Chào bạn! SmartTask AI rất vui được hỗ trợ bạn. Bạn có công việc gì cần mình xếp lịch hôm nay không?";
+            if (lower.contains("khỏe") || lower.contains("khoe")) {
+                chatReply = "Mình là trợ lý ảo nên luôn tràn đầy năng lượng để đồng hành cùng bạn nè! Hôm nay bạn có kế hoạch hay công việc gì cần xếp lịch không?";
+            } else if (lower.contains("bạn là ai") || lower.contains("ban la ai") || lower.contains("bạn tên gì") || lower.contains("ban ten gi")) {
+                chatReply = "Mình là SmartTask AI — trợ lý thông minh giúp bạn phân tích và xếp lịch trình cá nhân tối ưu nhất! Bạn muốn thêm công việc gì nào?";
+            }
+            return AiParseTaskResponse.builder()
+                    .isValidTask(false)
+                    .validationType("CHAT")
+                    .validationMessage(chatReply)
+                    .build();
+        }
 
         // 1. Phân loại Category
         String categoryType = "WORK";
@@ -1014,4 +1055,432 @@ public class AiServiceImpl implements AiService {
         }
         return sb.toString().trim();
     }
+
+    @Override
+    @Transactional
+    public List<SubtaskDto> breakdownTask(Long userId, Long taskId) {
+        long startTime = System.currentTimeMillis();
+        Task task = taskRepository.findById(taskId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy công việc #" + taskId));
+
+        String prompt = String.format("Công việc: '%s'. Mô tả: '%s'. Thời lượng dự kiến: %d phút.",
+                task.getTitle(), task.getDescription() != null ? task.getDescription() : "",
+                task.getEstimatedDurationMinutes() != null ? task.getEstimatedDurationMinutes() : 60);
+
+        String systemInstruction = "Vai trò: Bạn là Chuyên gia Quản lý Năng suất và Phân rã Công việc SmartTask AI.\n"
+                + "Nhiệm vụ: Hãy phân tích công việc của người dùng và chia nhỏ nó thành 3 đến 5 bước công việc con (subtasks) tuần tự, khả thi, rõ ràng.\n"
+                + "Mỗi bước phải có: 'title' (tiêu đề hành động ngắn gọn, bắt đầu bằng động từ tiếng Việt) và 'durationMinutes' (thời lượng phút ước tính cho bước đó, từ 10 đến 45 phút).\n"
+                + "Định dạng JSON trả về bắt buộc:\n"
+                + "{\n"
+                + "  \"subtasks\": [\n"
+                + "     {\"title\": \"string\", \"durationMinutes\": number}\n"
+                + "  ]\n"
+                + "}";
+
+        List<SubtaskDto> result = new ArrayList<>();
+        String rawResponse = null;
+
+        if (geminiApiClient.isConfigured()) {
+            Optional<String> geminiResult = geminiApiClient.generateJsonResponse(systemInstruction, prompt);
+            if (geminiResult.isPresent()) {
+                rawResponse = geminiResult.get().trim();
+                try {
+                    String cleanJson = rawResponse;
+                    if (cleanJson.startsWith("```json")) cleanJson = cleanJson.substring(7);
+                    if (cleanJson.startsWith("```")) cleanJson = cleanJson.substring(3);
+                    if (cleanJson.endsWith("```")) cleanJson = cleanJson.substring(0, cleanJson.length() - 3);
+                    cleanJson = cleanJson.trim();
+
+                    JsonNode root = objectMapper.readTree(cleanJson);
+                    JsonNode array = root.path("subtasks");
+                    if (array.isArray() && !array.isEmpty()) {
+                        int order = 0;
+                        for (JsonNode n : array) {
+                            String stTitle = n.path("title").asText("").trim();
+                            int dur = n.path("durationMinutes").asInt(15);
+                            if (!stTitle.isEmpty()) {
+                                Subtask subtask = Subtask.builder()
+                                        .taskId(taskId)
+                                        .title(stTitle)
+                                        .isCompleted(false)
+                                        .durationMinutes(dur)
+                                        .orderIndex(order++)
+                                        .build();
+                                Subtask saved = subtaskRepository.save(subtask);
+                                result.add(SubtaskDto.builder()
+                                        .id(saved.getId())
+                                        .taskId(taskId)
+                                        .title(saved.getTitle())
+                                        .isCompleted(saved.getIsCompleted())
+                                        .durationMinutes(saved.getDurationMinutes())
+                                        .orderIndex(saved.getOrderIndex())
+                                        .createdAt(saved.getCreatedAt())
+                                        .build());
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("Lỗi phân tích JSON subtasks từ Gemini: {}", e.getMessage());
+                }
+            }
+        }
+
+        // Heuristic fallback if Gemini is offline or didn't return valid subtasks
+        if (result.isEmpty()) {
+            log.info("Sử dụng Heuristic Subtask Breakdown cho task '{}'", task.getTitle());
+            List<String> defaultTitles;
+            String lower = task.getTitle().toLowerCase();
+            if (lower.contains("ôn") || lower.contains("thi") || lower.contains("học") || lower.contains("bài")) {
+                defaultTitles = List.of(
+                        "Đọc lại lý thuyết & tổng hợp đề cương trọng tâm",
+                        "Làm bài tập ví dụ và các dạng câu hỏi mẫu",
+                        "Tự bấm giờ giải đề thi thử",
+                        "Ghi chú lại các lỗi sai cần khắc phục"
+                );
+            } else if (lower.contains("đồ án") || lower.contains("báo cáo") || lower.contains("nghiên cứu")) {
+                defaultTitles = List.of(
+                        "Xác định mục tiêu & lập dàn ý chi tiết",
+                        "Thu thập tài liệu và số liệu tham khảo",
+                        "Thực hiện nội dung cốt lõi và lập trình/viết bản thảo",
+                        "Kiểm tra, định dạng lại văn bản và tổng duyệt"
+                );
+            } else {
+                defaultTitles = List.of(
+                        "Chuẩn bị tài liệu & công cụ cần thiết",
+                        "Tiến hành thực hiện các bước chính",
+                        "Kiểm tra chất lượng và hoàn thiện kết quả"
+                );
+            }
+
+            int stepDur = Math.max((task.getEstimatedDurationMinutes() != null ? task.getEstimatedDurationMinutes() : 60) / defaultTitles.size(), 15);
+            int order = 0;
+            for (String title : defaultTitles) {
+                Subtask subtask = Subtask.builder()
+                        .taskId(taskId)
+                        .title(title)
+                        .isCompleted(false)
+                        .durationMinutes(stepDur)
+                        .orderIndex(order++)
+                        .build();
+                Subtask saved = subtaskRepository.save(subtask);
+                result.add(SubtaskDto.builder()
+                        .id(saved.getId())
+                        .taskId(taskId)
+                        .title(saved.getTitle())
+                        .isCompleted(saved.getIsCompleted())
+                        .durationMinutes(saved.getDurationMinutes())
+                        .orderIndex(saved.getOrderIndex())
+                        .createdAt(saved.getCreatedAt())
+                        .build());
+            }
+        }
+
+        // Log to nhatkyai
+        try {
+            String safeAiResponse = (rawResponse != null && rawResponse.trim().startsWith("{") && rawResponse.trim().endsWith("}"))
+                    ? rawResponse.trim() : "{\"status\": \"completed\"}";
+            AiSchedulingLog aiLog = AiSchedulingLog.builder()
+                    .userId(userId)
+                    .actionType("TASK_BREAKDOWN")
+                    .promptInput(prompt)
+                    .aiResponse(safeAiResponse)
+                    .status("SUCCESS")
+                    .executionTimeMs(System.currentTimeMillis() - startTime)
+                    .build();
+            aiSchedulingLogRepository.save(aiLog);
+        } catch (Exception ignored) {}
+
+        return result;
+    }
+
+    @Override
+    @Transactional
+    public List<SubtaskDto> breakdownTaskByPrompt(Long userId, com.taskmanager.dto.request.AiBreakdownRequest request) {
+        if (request.getTaskId() != null && request.getTaskId() > 0) {
+            return breakdownTask(userId, request.getTaskId());
+        }
+
+        long startTime = System.currentTimeMillis();
+        String title = request.getTitle() != null ? request.getTitle().trim() : "Công việc mới";
+        String description = request.getDescription() != null ? request.getDescription().trim() : "";
+        int estimatedDuration = request.getDurationMinutes() != null && request.getDurationMinutes() > 0
+                ? request.getDurationMinutes() : 60;
+
+        String prompt = String.format("Công việc: '%s'. Mô tả: '%s'. Thời lượng dự kiến: %d phút.",
+                title, description, estimatedDuration);
+
+        String systemInstruction = "Vai trò: Bạn là Chuyên gia Quản lý Năng suất và Phân rã Công việc SmartTask AI.\n"
+                + "Nhiệm vụ: Hãy phân tích công việc của người dùng và chia nhỏ nó thành 3 đến 5 bước công việc con (subtasks) tuần tự, khả thi, rõ ràng.\n"
+                + "Mỗi bước phải có: 'title' (tiêu đề hành động ngắn gọn, bắt đầu bằng động từ tiếng Việt) và 'durationMinutes' (thời lượng phút ước tính cho bước đó, từ 10 đến 45 phút).\n"
+                + "Định dạng JSON trả về bắt buộc:\n"
+                + "{\n"
+                + "  \"subtasks\": [\n"
+                + "     {\"title\": \"string\", \"durationMinutes\": number}\n"
+                + "  ]\n"
+                + "}";
+
+        List<SubtaskDto> result = new ArrayList<>();
+        String rawResponse = null;
+
+        if (geminiApiClient.isConfigured()) {
+            Optional<String> geminiResult = geminiApiClient.generateJsonResponse(systemInstruction, prompt);
+            if (geminiResult.isPresent()) {
+                rawResponse = geminiResult.get().trim();
+                try {
+                    String cleanJson = rawResponse;
+                    if (cleanJson.startsWith("```json")) cleanJson = cleanJson.substring(7);
+                    if (cleanJson.startsWith("```")) cleanJson = cleanJson.substring(3);
+                    if (cleanJson.endsWith("```")) cleanJson = cleanJson.substring(0, cleanJson.length() - 3);
+                    cleanJson = cleanJson.trim();
+
+                    JsonNode root = objectMapper.readTree(cleanJson);
+                    JsonNode array = root.path("subtasks");
+                    if (array.isArray() && !array.isEmpty()) {
+                        int order = 0;
+                        long fakeId = -System.currentTimeMillis();
+                        for (JsonNode n : array) {
+                            String stTitle = n.path("title").asText("").trim();
+                            int dur = n.path("durationMinutes").asInt(15);
+                            if (!stTitle.isEmpty()) {
+                                result.add(SubtaskDto.builder()
+                                        .id(fakeId--)
+                                        .taskId(0L)
+                                        .title(stTitle)
+                                        .isCompleted(false)
+                                        .durationMinutes(dur)
+                                        .orderIndex(order++)
+                                        .createdAt(OffsetDateTime.now())
+                                        .build());
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("Lỗi phân tích JSON subtasks từ Gemini cho preview: {}", e.getMessage());
+                }
+            }
+        }
+
+        // Fallback heuristic if Gemini API key is offline or limit reached
+        if (result.isEmpty()) {
+            List<String> defaultTitles;
+            String lower = title.toLowerCase();
+            if (lower.contains("ôn") || lower.contains("thi") || lower.contains("học") || lower.contains("bài")) {
+                defaultTitles = List.of(
+                        "Đọc lại lý thuyết & tổng hợp đề cương trọng tâm",
+                        "Làm bài tập ví dụ và các dạng câu hỏi mẫu",
+                        "Tự bấm giờ giải đề thi thử",
+                        "Ghi chú lại các lỗi sai cần khắc phục"
+                );
+            } else if (lower.contains("đồ án") || lower.contains("báo cáo") || lower.contains("nghiên cứu")) {
+                defaultTitles = List.of(
+                        "Xác định mục tiêu & lập dàn ý chi tiết",
+                        "Thu thập tài liệu và số liệu tham khảo",
+                        "Thực hiện nội dung cốt lõi và hoàn thiện bản thảo",
+                        "Kiểm tra, định dạng lại văn bản và tổng duyệt"
+                );
+            } else {
+                defaultTitles = List.of(
+                        "Chuẩn bị tài liệu & công cụ cho: " + title,
+                        "Thực hiện các bước trọng tâm của việc: " + title,
+                        "Kiểm tra chất lượng và hoàn thiện kết quả"
+                );
+            }
+
+            long fakeId = -System.currentTimeMillis();
+            int order = 0;
+            for (String dt : defaultTitles) {
+                result.add(SubtaskDto.builder()
+                        .id(fakeId--)
+                        .taskId(0L)
+                        .title(dt)
+                        .isCompleted(false)
+                        .durationMinutes(20)
+                        .orderIndex(order++)
+                        .createdAt(OffsetDateTime.now())
+                        .build());
+            }
+        }
+
+        // Log to nhatkyai
+        try {
+            String safeAiResponse = (rawResponse != null && rawResponse.trim().startsWith("{") && rawResponse.trim().endsWith("}"))
+                    ? rawResponse.trim() : "{\"status\": \"completed\"}";
+            AiSchedulingLog aiLog = AiSchedulingLog.builder()
+                    .userId(userId)
+                    .actionType("TASK_BREAKDOWN_PREVIEW")
+                    .promptInput(prompt)
+                    .aiResponse(safeAiResponse)
+                    .status("SUCCESS")
+                    .executionTimeMs(System.currentTimeMillis() - startTime)
+                    .build();
+            aiSchedulingLogRepository.save(aiLog);
+        } catch (Exception ignored) {}
+
+        return result;
+    }
+
+    @Override
+    @Transactional
+    public AutoScheduleDto.Response autoSchedule(Long userId, AutoScheduleDto request) {
+        long startTime = System.currentTimeMillis();
+        LocalDate targetDate;
+        if (request.getTargetDate() != null && !request.getTargetDate().isBlank()) {
+            try {
+                targetDate = LocalDate.parse(request.getTargetDate().trim());
+            } catch (Exception e) {
+                targetDate = LocalDate.now(VIETNAM_ZONE);
+            }
+        } else {
+            targetDate = LocalDate.now(VIETNAM_ZONE);
+        }
+
+        // Read user preference for work hours
+        UserPreference pref = userPreferenceRepository.findByUserId(userId).orElse(null);
+        LocalTime workStart = (pref != null && pref.getWorkStartTime() != null) ? pref.getWorkStartTime() : LocalTime.of(8, 0);
+        LocalTime workEnd = (pref != null && pref.getWorkEndTime() != null) ? pref.getWorkEndTime() : LocalTime.of(18, 0);
+        int bufferMinutes = (pref != null && pref.getBufferMinutes() != null) ? pref.getBufferMinutes() : 15;
+
+        OffsetDateTime dayStart = targetDate.atTime(workStart).atZone(VIETNAM_ZONE).toOffsetDateTime();
+        OffsetDateTime dayEnd = targetDate.atTime(workEnd).atZone(VIETNAM_ZONE).toOffsetDateTime();
+
+        // Get existing time blocks on target date
+        List<TimeBlock> existingBlocks = new ArrayList<>(timeBlockRepository.findByUserIdAndStartTimeBetween(userId, dayStart, dayEnd));
+        existingBlocks.sort(Comparator.comparing(TimeBlock::getStartTime));
+
+        // Get candidate tasks
+        List<Task> candidateTasks;
+        if (request.getTaskIds() != null && !request.getTaskIds().isEmpty()) {
+            candidateTasks = taskRepository.findAllById(request.getTaskIds());
+        } else if (request.getWorkspaceId() != null) {
+            candidateTasks = taskRepository.findByUserIdAndWorkspaceId(userId, request.getWorkspaceId());
+        } else {
+            candidateTasks = taskRepository.findByUserId(userId);
+        }
+
+        // Filter only TODO or IN_PROGRESS
+        candidateTasks = candidateTasks.stream()
+                .filter(t -> "TODO".equalsIgnoreCase(t.getStatus()) || "IN_PROGRESS".equalsIgnoreCase(t.getStatus()))
+                .sorted((a, b) -> {
+                    int rankA = getQuadrantRank(a.getEisenhowerQuadrant(), a.getPriority());
+                    int rankB = getQuadrantRank(b.getEisenhowerQuadrant(), b.getPriority());
+                    return Integer.compare(rankA, rankB);
+                })
+                .collect(Collectors.toList());
+
+        List<AutoScheduleDto.ScheduledTaskProposal> proposals = new ArrayList<>();
+        OffsetDateTime cursor = dayStart;
+
+        for (Task task : candidateTasks) {
+            int duration = task.getEstimatedDurationMinutes() != null && task.getEstimatedDurationMinutes() > 0
+                    ? task.getEstimatedDurationMinutes() : 45;
+
+            boolean slotFound = false;
+            while (!slotFound && (cursor.plusMinutes(duration).isBefore(dayEnd) || cursor.plusMinutes(duration).isEqual(dayEnd))) {
+                OffsetDateTime candidateEnd = cursor.plusMinutes(duration);
+                boolean hasOverlap = false;
+
+                for (TimeBlock eb : existingBlocks) {
+                    if (cursor.isBefore(eb.getEndTime()) && candidateEnd.isAfter(eb.getStartTime())) {
+                        hasOverlap = true;
+                        cursor = eb.getEndTime().plusMinutes(bufferMinutes);
+                        break;
+                    }
+                }
+
+                if (!hasOverlap) {
+                    String rationale = generateRationale(task, cursor);
+                    proposals.add(AutoScheduleDto.ScheduledTaskProposal.builder()
+                            .taskId(task.getId())
+                            .title(task.getTitle())
+                            .categoryType(getCategoryTypeName(task.getCategoryId()))
+                            .priority(task.getPriority())
+                            .eisenhowerQuadrant(task.getEisenhowerQuadrant())
+                            .startTime(cursor)
+                            .endTime(candidateEnd)
+                            .durationMinutes(duration)
+                            .slotRationale(rationale)
+                            .build());
+
+                    if (Boolean.TRUE.equals(request.getApplyImmediately())) {
+                        TimeBlock newBlock = TimeBlock.builder()
+                                .userId(userId)
+                                .taskId(task.getId())
+                                .title(task.getTitle())
+                                .startTime(cursor)
+                                .endTime(candidateEnd)
+                                .isAutoScheduled(true)
+                                .colorCode("#6C5CE7")
+                                .note("Tự động xếp lịch thông minh bởi SmartTask AI: " + rationale)
+                                .build();
+                        timeBlockRepository.save(newBlock);
+                        existingBlocks.add(newBlock);
+                        existingBlocks.sort(Comparator.comparing(TimeBlock::getStartTime));
+                    }
+
+                    cursor = candidateEnd.plusMinutes(bufferMinutes);
+                    slotFound = true;
+                }
+            }
+        }
+
+        String summary = String.format("SmartTask AI đã tối ưu hóa lịch ngày %s: Tự động xếp thành công %d công việc theo ma trận Eisenhower (Ưu tiên khung giờ sáng cho việc quan trọng).",
+                targetDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")), proposals.size());
+
+        try {
+            AiSchedulingLog aiLog = AiSchedulingLog.builder()
+                    .userId(userId)
+                    .actionType("AUTO_SCHEDULE")
+                    .promptInput("Tự động xếp lịch ngày " + targetDate)
+                    .aiResponse(objectMapper.writeValueAsString(proposals))
+                    .status("SUCCESS")
+                    .executionTimeMs(System.currentTimeMillis() - startTime)
+                    .build();
+            aiSchedulingLogRepository.save(aiLog);
+        } catch (Exception ignored) {}
+
+        return AutoScheduleDto.Response.builder()
+                .targetDate(targetDate.toString())
+                .scheduledCount(proposals.size())
+                .remainingUnscheduled(Math.max(0, candidateTasks.size() - proposals.size()))
+                .proposals(proposals)
+                .aiStrategySummary(summary)
+                .applied(Boolean.TRUE.equals(request.getApplyImmediately()))
+                .build();
+    }
+
+    private int getQuadrantRank(String quadrant, String priority) {
+        if ("DO_FIRST".equalsIgnoreCase(quadrant) || "URGENT".equalsIgnoreCase(priority)) return 1;
+        if ("SCHEDULE".equalsIgnoreCase(quadrant) || "HIGH".equalsIgnoreCase(priority)) return 2;
+        if ("DELEGATE".equalsIgnoreCase(quadrant)) return 3;
+        if ("DONT_DO".equalsIgnoreCase(quadrant) || "LOW".equalsIgnoreCase(priority)) return 4;
+        return 2;
+    }
+
+    private String generateRationale(Task task, OffsetDateTime slot) {
+        String quad = task.getEisenhowerQuadrant() != null ? task.getEisenhowerQuadrant().toUpperCase() : "SCHEDULE";
+        int hour = slot.getHour();
+        String timeOfDay = (hour < 12) ? "buổi sáng (khung giờ vàng tập trung)" : (hour < 17) ? "buổi chiều" : "buổi tối";
+
+        switch (quad) {
+            case "DO_FIRST":
+                return "Xếp vào " + timeOfDay + " vì là việc Khẩn cấp & Quan trọng (Q1) cần giải quyết ngay đầu ngày.";
+            case "SCHEDULE":
+                return "Xếp vào " + timeOfDay + " để đảm bảo tiến độ công việc quan trọng dài hạn (Q2).";
+            case "DELEGATE":
+                return "Xếp vào " + timeOfDay + " (Q3) để xử lý nhanh sau các nhiệm vụ cốt lõi.";
+            case "DONT_DO":
+            default:
+                return "Xếp vào " + timeOfDay + " (Q4) khi các việc ưu tiên đã được giải quyết.";
+        }
+    }
+
+    private String getCategoryTypeName(Long categoryId) {
+        if (categoryId == null) return "WORK";
+        if (categoryId == 1L) return "STUDY";
+        if (categoryId == 2L) return "WORK";
+        if (categoryId == 3L) return "HEALTH";
+        if (categoryId == 4L) return "ENTERTAINMENT";
+        return "WORK";
+    }
 }
+

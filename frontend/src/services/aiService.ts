@@ -24,7 +24,7 @@ export interface AiParseTaskResponse {
   suggestedAlternativeEndTime?: string;
   isValidTask?: boolean;
   validationMessage?: string;
-  validationType?: 'GREETING' | 'INAPPROPRIATE' | 'NONSENSE' | 'VALID';
+  validationType?: 'GREETING' | 'INAPPROPRIATE' | 'NONSENSE' | 'VALID' | 'CHAT';
   tasks?: AiParseTaskResponse[];
 }
 

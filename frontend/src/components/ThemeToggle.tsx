@@ -17,16 +17,16 @@ export default function ThemeToggle({ theme, onToggle }: ThemeToggleProps) {
     >
       <div className="toggle-track">
         <div className="track-icon track-sun">
-          <Sun size={13} strokeWidth={2.5} />
+          <Sun size={11} strokeWidth={2.5} />
         </div>
         <div className="track-icon track-moon">
-          <Moon size={13} strokeWidth={2.5} />
+          <Moon size={11} strokeWidth={2.5} />
         </div>
         <div className="toggle-thumb">
           {isDark ? (
-            <Moon size={12} strokeWidth={2.5} className="thumb-icon" />
+            <Moon size={10} strokeWidth={2.5} className="thumb-icon" />
           ) : (
-            <Sun size={12} strokeWidth={2.5} className="thumb-icon" />
+            <Sun size={10} strokeWidth={2.5} className="thumb-icon" />
           )}
         </div>
       </div>

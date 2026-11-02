@@ -1,0 +1,280 @@
+.task-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(12, 20, 30, .58);
+  backdrop-filter: blur(8px) saturate(115%);
+  -webkit-backdrop-filter: blur(8px) saturate(115%);
+}
+
+.task-modal-shell {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 100%);
+  max-height: min(88vh, 860px);
+  max-height: min(88dvh, 860px);
+  overflow: hidden;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: 0 28px 80px rgba(3, 10, 18, .32);
+  animation: modalSlideUp .2s ease-out;
+}
+
+.task-modal-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 64px;
+  padding: 12px 22px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.task-modal-header h2 {
+  font-size: 1.12rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -.02em;
+}
+
+.task-modal-header button {
+  width: 34px;
+  height: 34px;
+  color: var(--text-muted) !important;
+  border: 1px solid transparent !important;
+  border-radius: 9px !important;
+}
+
+.task-modal-header button:hover {
+  color: var(--text) !important;
+  background: var(--bg) !important;
+  border-color: var(--border-light) !important;
+}
+
+.task-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.task-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 24px 0;
+}
+
+.task-modal-form > div > label {
+  display: block;
+  margin-bottom: 7px !important;
+  color: var(--text-muted) !important;
+  font-size: .7rem !important;
+  font-weight: 700 !important;
+  letter-spacing: .055em !important;
+}
+
+.task-modal-form input:not([type='checkbox']),
+.task-modal-form select,
+.task-modal-form textarea {
+  min-height: 40px;
+  padding: 9px 11px !important;
+  color: var(--text) !important;
+  background: color-mix(in srgb, var(--surface) 88%, var(--bg)) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 9px !important;
+  font-size: .86rem !important;
+  font-weight: 500 !important;
+  box-shadow: inset 0 1px 1px rgba(20, 35, 48, .025);
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+
+.task-modal-form input:not([type='checkbox']):focus,
+.task-modal-form select:focus,
+.task-modal-form textarea:focus {
+  outline: none !important;
+  border-color: var(--primary-light) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent) !important;
+}
+
+.task-modal-form input[type='checkbox'] {
+  width: 16px !important;
+  height: 16px !important;
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.task-modal-categories {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.task-modal-categories button {
+  min-width: 0;
+  min-height: 38px;
+  padding: 7px 9px !important;
+  border-radius: 9px !important;
+}
+
+.task-modal-date-row {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 1fr;
+  gap: 12px !important;
+}
+
+.task-modal-date-row > div,
+.task-modal-select-row > div {
+  min-width: 0;
+}
+
+.task-modal-date-row .time24-input-container {
+  display: block !important;
+}
+
+.task-modal-date-row .task-modal-date-input,
+.task-modal-date-row .time24-input-container input {
+  min-height: 40px;
+}
+
+.task-modal-select-row,
+.task-modal-feature-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px !important;
+}
+
+.task-modal-option-card {
+  display: flex;
+  min-height: 62px;
+  flex-direction: column;
+  justify-content: center;
+  padding: 11px 13px !important;
+  background: color-mix(in srgb, var(--surface) 55%, var(--bg)) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 11px !important;
+  transition: background .15s ease, border-color .15s ease;
+}
+
+.task-modal-option-card.is-selected {
+  background: color-mix(in srgb, var(--primary) 9%, var(--surface)) !important;
+  border-color: color-mix(in srgb, var(--primary) 42%, var(--border)) !important;
+}
+
+.task-modal-option-card.is-locked {
+  background: color-mix(in srgb, #dc6262 7%, var(--surface)) !important;
+  border-color: color-mix(in srgb, #dc6262 35%, var(--border)) !important;
+}
+
+.task-modal-option-card label {
+  font-size: .82rem !important;
+}
+
+.task-modal-checklist {
+  padding: 13px 14px !important;
+  background: color-mix(in srgb, var(--surface) 65%, var(--bg)) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+}
+
+.task-modal-checklist button[style*='linear-gradient'] {
+  background: var(--primary) !important;
+  box-shadow: none !important;
+}
+
+.task-modal-checklist input:not([type='checkbox']) {
+  min-width: 0;
+}
+
+.task-modal-note textarea {
+  min-height: 68px !important;
+  resize: vertical !important;
+}
+
+.task-modal-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 -24px;
+  padding: 14px 24px 18px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  border-top: 1px solid var(--border-light);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.task-modal-actions button {
+  min-height: 40px;
+  padding: 8px 15px !important;
+  border-radius: 9px !important;
+  font-size: .84rem !important;
+  font-weight: 600 !important;
+  box-shadow: none !important;
+}
+
+.task-modal-actions button[type='submit'] {
+  padding-inline: 19px !important;
+  background: var(--primary) !important;
+  color: var(--on-primary) !important;
+}
+
+.task-modal-actions button[type='submit']:hover {
+  background: var(--primary-dark) !important;
+}
+
+@media (max-width: 620px) {
+  .task-modal-overlay {
+    align-items: flex-end;
+    padding: 10px;
+  }
+
+  .task-modal-shell {
+    width: 100%;
+    max-height: 94vh;
+    max-height: 94dvh;
+    border-radius: 16px;
+  }
+
+  .task-modal-header {
+    min-height: 56px;
+    padding: 10px 16px;
+  }
+
+  .task-modal-form {
+    gap: 14px;
+    padding: 16px 16px 0;
+  }
+
+  .task-modal-categories {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .task-modal-date-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .task-modal-date-row > div:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .task-modal-select-row,
+  .task-modal-feature-row {
+    grid-template-columns: 1fr;
+  }
+
+  .task-modal-actions {
+    margin-inline: -16px;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  }
+}

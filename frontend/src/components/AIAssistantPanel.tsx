@@ -2,27 +2,66 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Sparkles, Mic, MicOff, ArrowUp, Calendar as CalendarIcon,
   Flag, AlertTriangle, BookOpen, ExternalLink, Loader2, CheckCircle2, Clock,
-  Edit3, PlusCircle, ShieldAlert, MessageSquare, HelpCircle
+  Edit3, PlusCircle, ShieldAlert, ShieldCheck, HelpCircle, Zap, Check, Bot,
+  PanelRightClose, PanelRightOpen
 } from 'lucide-react';
 import { TimeBlock } from '../types';
 import { aiService, AiParseTaskResponse } from '../services/aiService';
 import { checkWorkHoursConstraint } from '../utils/workHoursConstraint';
+import { WorkspaceItem, workspaceService } from '../services/workspaceService';
+import { aiPrivacyService } from '../services/aiPrivacyService';
+import AiPrivacyModal from './AiPrivacyModal';
 
 interface AIAssistantPanelProps {
   onScheduleTask: (newTask: Partial<TimeBlock>) => Promise<any> | void;
   onEditTaskDetails: (taskInfo: any) => void;
   currentDate?: Date;
+  activeWorkspace?: WorkspaceItem | null;
+  onShowToast?: (msg: string) => void;
+  width?: number;
+  onResetWidth?: () => void;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 export default function AIAssistantPanel({
   onScheduleTask,
   onEditTaskDetails,
   currentDate,
+  activeWorkspace,
+  onShowToast,
+  width = 300,
+  onResetWidth: _onResetWidth,
+  isCollapsed = false,
+  onToggleCollapse,
 }: AIAssistantPanelProps) {
   const [inputText, setInputText] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [isFocused, setIsFocused] = useState(false);
+
+  // AI Privacy & Workspace Permission State
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([]);
+  const [allowedWorkspaceIds, setAllowedWorkspaceIds] = useState<number[]>([]);
+
+  useEffect(() => {
+    workspaceService.getWorkspaces().then((list) => {
+      if (list && list.length > 0) {
+        setWorkspaces(list);
+        setAllowedWorkspaceIds(aiPrivacyService.getAllowedWorkspaceIds(list));
+      }
+    }).catch(() => { });
+
+    const unsubscribe = aiPrivacyService.subscribe((ids) => {
+      setAllowedWorkspaceIds(ids);
+    });
+    return unsubscribe;
+  }, []);
+
+  const isCurrentWsAllowed = activeWorkspace
+    ? allowedWorkspaceIds.includes(activeWorkspace.id)
+    : true;
 
   // AI response state
   const [parsedTask, setParsedTask] = useState<AiParseTaskResponse | null>(null);
@@ -37,11 +76,19 @@ export default function AIAssistantPanel({
     reason: string;
     promptMessage: string;
   } | null>(null);
+  const [autoSchedule, setAutoSchedule] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('smarttask_auto_schedule') === 'true';
+    } catch (e) {
+      return false;
+    }
+  });
+  const [justCompletedToast, setJustCompletedToast] = useState<string | null>(null);
 
   const recognitionRef = useRef<any>(null);
   const latestTranscriptRef = useRef<string>('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const executeAiParseRef = useRef<(promptText: string) => Promise<void>>(async () => {});
+  const executeAiParseRef = useRef<(promptText: string) => Promise<void>>(async () => { });
 
   // Dynamic progressive thinking stages
   useEffect(() => {
@@ -168,6 +215,29 @@ export default function AIAssistantPanel({
   // Execute AI Parsing
   const executeAiParse = async (promptText: string) => {
     if (!promptText.trim()) return;
+
+    // Security Privacy Gate: Block AI processing if active workspace is locked
+    if (!isCurrentWsAllowed && activeWorkspace) {
+      setIsLoading(false);
+      setApiError(null);
+      setIsConfirmed(false);
+      setOffHoursPendingConfirm(null);
+      setParsedTask({
+        title: '',
+        categoryType: 'WORK',
+        startTime: '',
+        endTime: '',
+        estimatedDurationMinutes: 0,
+        priority: 'MEDIUM',
+        isFixedTime: false,
+        formattedDateLabel: '',
+        isValidTask: false,
+        validationType: 'INAPPROPRIATE',
+        validationMessage: `🔒 Quyền riêng tư: Không gian "${activeWorkspace.name}" đang được đặt chế độ bảo mật riêng tư. AI không có quyền đọc dữ liệu, phân tích hay lên lịch trong không gian này để bảo vệ bí mật công việc cá nhân. Nhấp vào nút "Quyền AI" ở góc trên để mở khóa nếu cần.`,
+      });
+      return;
+    }
+
     setIsLoading(true);
     setApiError(null);
     setIsConfirmed(false);
@@ -184,8 +254,41 @@ export default function AIAssistantPanel({
       const mm = String(now.getMinutes()).padStart(2, '0');
       const ss = String(now.getSeconds()).padStart(2, '0');
       refIso = `${y}-${m}-${d}T${hh}:${mm}:${ss}+07:00`;
-      const result = await aiService.parseTask(promptText.trim(), undefined, refIso);
+      const result = await aiService.parseTask(promptText.trim(), activeWorkspace?.id, refIso);
       setParsedTask(result);
+
+      // Tự động thêm vào lịch trình nếu bật gạt "Tự động thêm vào lịch mà không cần xác nhận"
+      if (autoSchedule && result.isValidTask !== false) {
+        const taskList = (result.tasks && result.tasks.length > 0)
+          ? result.tasks
+          : [result];
+
+        setIsSubmitting(true);
+        try {
+          for (const t of taskList) {
+            const res: any = await onScheduleTask({
+              title: t.title,
+              note: t.note,
+              description: t.note,
+              startTime: t.startTime,
+              endTime: t.endTime,
+              categoryType: t.categoryType,
+              status: 'TODO',
+              isAutoScheduled: true,
+              priority: t.priority,
+            });
+            if (taskList.length === 1 && res && (res.id || res.taskId)) {
+              setCreatedTask({ id: res.id || res.taskId, title: t.title });
+            }
+          }
+          setOffHoursPendingConfirm(null);
+          setIsConfirmed(true);
+        } catch (scheduleErr) {
+          console.error('Lỗi khi tự động thêm vào lịch:', scheduleErr);
+        } finally {
+          setIsSubmitting(false);
+        }
+      }
     } catch (err: any) {
       console.error('Lỗi phân tích AI:', err);
       setApiError('Không thể kết nối đến Trợ lý AI. Vui lòng kiểm tra Backend.');
@@ -347,6 +450,29 @@ export default function AIAssistantPanel({
     }
   };
 
+  const handleToggleAutoSchedule = (val: boolean) => {
+    setAutoSchedule(val);
+    try {
+      localStorage.setItem('smarttask_auto_schedule', String(val));
+    } catch (e) { }
+  };
+
+  const handleFinishTask = () => {
+    const taskCount = (parsedTask?.tasks && parsedTask.tasks.length > 0) ? parsedTask.tasks.length : 1;
+    const msg = taskCount > 1
+      ? `Đã xác nhận hoàn tất ${taskCount} công việc trong lịch trình!`
+      : `Đã xác nhận hoàn tất thêm công việc vào lịch trình!`;
+    setJustCompletedToast(msg);
+    setTimeout(() => {
+      setJustCompletedToast(null);
+    }, 3500);
+    setParsedTask(null);
+    setInputText('');
+    setIsConfirmed(false);
+    setCreatedTask(null);
+    setOffHoursPendingConfirm(null);
+  };
+
   const getPriorityLabel = (pri?: string) => {
     switch (pri) {
       case 'URGENT': return 'Khẩn cấp';
@@ -375,1134 +501,1230 @@ export default function AIAssistantPanel({
     }
   };
 
-  return (
-    <aside className="ai-panel">
-      {/* ── Header ── */}
-      <div className="ai-header">
-        <div className="ai-header-left">
-          <div className="ai-icon">
-            <Sparkles size={20} />
-          </div>
-          <h3>Trợ lý SmartTask</h3>
-        </div>
-        <span className="ai-status">Sẵn sàng</span>
-      </div>
+  // Ngưỡng co giãn responsive: Chuẩn 300px
+  // Khi kéo hẹp dưới 285px thì sớm rút ngắn text để không bao giờ bị dính/chạm lấn cấn
+  const isCompact = (width ?? 300) < 285;
+  const isUltraCompact = (width ?? 300) < 240;
+  const isMini = (width ?? 300) < 195;
+  const isWide = (width ?? 300) > 360;
 
-      <p className="ai-welcome">
-        Bạn nói điều cần làm. Mình tìm thời gian phù hợp, bạn quyết định.
-      </p>
-
-      {/* ── Input Card with Mic & Send ── */}
-      <div style={{ padding: '0 20px 14px' }}>
+  // ── Render Collapsed Mode (Thanh hẹp 56px với animation mượt mà tương tự Sidebar trái) ──
+  if (isCollapsed) {
+    return (
+      <aside
+        className="ai-panel collapsed"
+        style={{ width: 56, minWidth: 56, maxWidth: 56 }}
+      >
         <div
           style={{
-            background: '#FFFFFF',
-            border: isListening
-              ? '1.5px solid #EF4444'
-              : isFocused
-                ? '1.5px solid #6C5CE7'
-                : '1px solid #E2E8F0',
-            borderRadius: 12,
-            padding: '12px 14px 10px',
-            boxShadow: isListening
-              ? '0 0 0 3px rgba(239, 68, 68, 0.15)'
-              : isFocused
-                ? '0 0 0 3px rgba(108, 92, 231, 0.12)'
-                : '0 1px 3px rgba(0,0,0,0.05)',
             display: 'flex',
             flexDirection: 'column',
-            gap: 10,
-            transition: 'all 0.2s ease',
+            alignItems: 'center',
+            gap: 12,
+            padding: '14px 6px',
+            height: '100%',
+            boxSizing: 'border-box',
           }}
         >
-          {/* Text input area with clear button */}
-          <div style={{ position: 'relative', width: '100%' }}>
-            <textarea
-              ref={textareaRef}
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onFocus={() => setIsFocused(true)}
-              onBlur={() => setIsFocused(false)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  if (!isLoading && inputText.trim()) {
-                    handleSend();
-                  }
-                }
-              }}
-              rows={2}
-              placeholder="Nói hoặc gõ công việc cần làm... (Ví dụ: Đọc sách sáng mai lúc 8h)"
-              style={{
-                width: '100%',
-                border: 'none',
-                outline: 'none',
-                resize: 'none',
-                fontSize: '0.88rem',
-                fontFamily: 'inherit',
-                color: '#1E293B',
-                lineHeight: 1.5,
-                background: 'transparent',
-                paddingRight: inputText ? 28 : 0,
-                boxSizing: 'border-box',
-                overflowY: 'auto',
-              }}
-            />
+          {/* Nút Mở rộng Trợ lý AI matching phong cách Sidebar */}
+          <button
+            type="button"
+            className="ai-panel-collapse-btn collapsed"
+            onClick={onToggleCollapse}
+            title="Mở rộng Trợ lý AI (Click để mở)"
+            aria-label="Mở rộng Trợ lý AI"
+          >
+            <PanelRightOpen size={20} />
+          </button>
 
-            {/* Quick clear button (✕) */}
-            {inputText && (
+          {/* Icon Sparkles kích hoạt mở AI */}
+          <button
+            type="button"
+            className="ai-collapsed-icon-btn"
+            onClick={onToggleCollapse}
+            title="Trợ lý SmartTask AI - Click để mở"
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 10,
+              background: 'var(--primary-bg)',
+              border: '1px solid var(--border)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--primary)',
+              cursor: 'pointer',
+              transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+            }}
+          >
+            <Sparkles size={18} />
+          </button>
+
+          {/* Quick Voice Mic Trigger */}
+          <button
+            type="button"
+            className="ai-collapsed-icon-btn"
+            onClick={() => {
+              onToggleCollapse?.();
+              setTimeout(() => toggleListening(), 320);
+            }}
+            title="Nhập giọng nói - Mở Trợ lý AI"
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 10,
+              background: isListening ? '#FEF2F2' : 'var(--surface-header, #F8FAFC)',
+              border: isListening ? '1.5px solid #EF4444' : '1px solid var(--border)',
+              color: isListening ? '#DC2626' : 'var(--text-muted)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+            }}
+          >
+            {isListening ? <MicOff size={18} /> : <Mic size={18} />}
+          </button>
+
+          {/* Quick Privacy status badge */}
+          <button
+            type="button"
+            className="ai-collapsed-icon-btn"
+            onClick={() => setShowPrivacyModal(true)}
+            title="Quản lý quyền AI truy cập Không gian làm việc"
+            style={{
+              width: 38,
+              height: 32,
+              borderRadius: 8,
+              background: isCurrentWsAllowed ? '#F0FDF4' : '#FEF2F2',
+              border: isCurrentWsAllowed ? '1px solid #BBF7D0' : '1px solid #FECDD3',
+              color: isCurrentWsAllowed ? '#15803D' : '#BE123C',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 3,
+              fontSize: '0.7rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              marginTop: 'auto',
+              marginBottom: 8,
+              transition: 'all 0.2s ease',
+            }}
+          >
+            {isCurrentWsAllowed ? <ShieldCheck size={14} /> : <ShieldAlert size={14} />}
+            <span>{allowedWorkspaceIds.length}</span>
+          </button>
+        </div>
+
+        {/* Modal Quyền Không gian khi click badge */}
+        <AiPrivacyModal
+          isOpen={showPrivacyModal}
+          onClose={() => setShowPrivacyModal(false)}
+          workspaces={workspaces}
+          activeWorkspace={activeWorkspace || null}
+          onShowToast={onShowToast}
+        />
+      </aside>
+    );
+  }
+
+  return (
+    <aside
+      className={`ai-panel ${isCompact ? 'compact-mode' : ''} ${isUltraCompact ? 'ultracompact-mode' : ''} ${isMini ? 'mini-mode' : ''} ${isWide ? 'wide-mode' : ''}`}
+      style={{ width: width || 300 }}
+    >
+      {/* ── Header ── */}
+      <div className="ai-header">
+        <div className="ai-header-left" style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
+          <div className="ai-icon" style={{ flexShrink: 0 }}>
+            <Sparkles size={isMini ? 14 : isCompact ? 16 : 18} />
+          </div>
+          <h3
+            style={{
+              fontSize: isMini ? '0.78rem' : isUltraCompact ? '0.82rem' : isCompact ? '0.86rem' : '0.94rem',
+              fontWeight: 700,
+              margin: 0,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              color: 'var(--text)',
+              lineHeight: 1.2,
+            }}
+          >
+            {isMini ? 'AI' : isUltraCompact ? 'SmartTask' : isCompact ? 'Trợ lý AI' : 'Trợ lý SmartTask'}
+          </h3>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMini ? 3 : 5, flexShrink: 0 }}>
+          {/* Nút Thu gọn Trợ lý AI - Tương tự như Sidebar trái */}
+          {onToggleCollapse && (
+            <button
+              type="button"
+              className="ai-panel-collapse-btn"
+              onClick={onToggleCollapse}
+              title="Thu gọn Trợ lý AI"
+              aria-label="Thu gọn Trợ lý AI"
+            >
+              <PanelRightClose size={17} />
+            </button>
+          )}
+
+          {/* Privacy Permission Badge Button */}
+          <button
+            type="button"
+            className="ai-privacy-badge-btn"
+            onClick={() => setShowPrivacyModal(true)}
+            title="Quản lý quyền AI truy cập Không gian làm việc"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: isCompact ? '3px 6px' : '3px 8px',
+              borderRadius: 8,
+              border: isCurrentWsAllowed ? '1px solid #BBF7D0' : '1px solid #FECDD3',
+              background: isCurrentWsAllowed ? '#F0FDF4' : '#FEF2F2',
+              color: isCurrentWsAllowed ? '#15803D' : '#BE123C',
+              cursor: 'pointer',
+              fontSize: '0.72rem',
+              fontWeight: 600,
+              transition: 'all 0.2s ease',
+              flexShrink: 0,
+            }}
+          >
+            {isCurrentWsAllowed ? (
+              <ShieldCheck size={14} style={{ color: '#10B981' }} />
+            ) : (
+              <ShieldAlert size={14} style={{ color: '#EF4444' }} />
+            )}
+            {!isUltraCompact && (
+              <span className="ai-privacy-badge-text">
+                {isCompact ? `${allowedWorkspaceIds.length}/${workspaces.length || 1}` : (
+                  isCurrentWsAllowed
+                    ? `${allowedWorkspaceIds.length}/${workspaces.length || 1}`
+                    : 'Đã khóa quyền'
+                )}
+              </span>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Scrollable AI Panel Body (Header stays fixed at top) ── */}
+      <div className="ai-panel-body">
+        {!isCurrentWsAllowed && activeWorkspace && (
+          <div
+            style={{
+              margin: '0 20px 12px',
+              padding: '10px 14px',
+              background: 'linear-gradient(135deg, #FEF2F2, #FFF1F2)',
+              border: '1.5px solid #FECDD3',
+              borderRadius: 12,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              boxShadow: '0 2px 8px rgba(239, 68, 68, 0.08)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+              <ShieldAlert size={18} style={{ color: '#E11D48', flexShrink: 0, marginTop: 1 }} />
+              <div style={{ fontSize: '0.78rem', color: '#9F1239', lineHeight: 1.4 }}>
+                <strong style={{ display: 'block', color: '#881337', marginBottom: 2 }}>
+                  🔒 Không gian "{activeWorkspace.name}" đã khóa quyền với AI
+                </strong>
+                AI không được phép đọc dữ liệu hoặc lên lịch trong không gian này để bảo vệ bí mật công việc cá nhân.
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setShowPrivacyModal(true)}
+                style={{
+                  background: 'none',
+                  color: '#9F1239',
+                  border: '1px solid #FECDD3',
+                  borderRadius: 6,
+                  padding: '3px 8px',
+                  fontSize: '0.72rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Cài đặt quyền
+              </button>
               <button
                 type="button"
                 onClick={() => {
-                  setInputText('');
-                  textareaRef.current?.focus();
+                  aiPrivacyService.toggleWorkspace(activeWorkspace.id, workspaces);
+                  setAllowedWorkspaceIds(aiPrivacyService.getAllowedWorkspaceIds(workspaces));
+                  onShowToast?.(`✓ Đã cấp quyền AI cho không gian "${activeWorkspace.name}"!`);
                 }}
                 style={{
-                  position: 'absolute',
-                  top: 0,
-                  right: 0,
-                  background: '#F1F5F9',
+                  background: '#E11D48',
+                  color: '#fff',
                   border: 'none',
-                  borderRadius: '50%',
-                  width: 20,
-                  height: 20,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  color: '#64748B',
-                  fontSize: '0.75rem',
-                  fontWeight: 700,
-                  transition: 'all 0.15s',
-                }}
-                title="Xóa nhanh (Clear)"
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#E2E8F0';
-                  e.currentTarget.style.color = '#0F172A';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#F1F5F9';
-                  e.currentTarget.style.color = '#64748B';
-                }}
-              >
-                ✕
-              </button>
-            )}
-          </div>
-
-          {/* Speech recording banner if listening */}
-          {isListening && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                fontSize: '0.78rem',
-                color: '#DC2626',
-                background: '#FEF2F2',
-                padding: '6px 10px',
-                borderRadius: 8,
-                fontWeight: 600,
-                border: '1px solid #FECACA',
-              }}
-            >
-              <span
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  background: '#DC2626',
-                  animation: 'pulse-mic 1s infinite',
-                  flexShrink: 0,
-                }}
-              />
-              <span style={{ flex: 1 }}>Đang lắng nghe giọng nói tiếng Việt... Hãy nói câu lệnh</span>
-              <button
-                type="button"
-                onClick={toggleListening}
-                style={{
-                  border: 'none',
-                  background: '#DC2626',
-                  color: '#FFFFFF',
                   borderRadius: 6,
-                  padding: '2px 8px',
+                  padding: '4px 10px',
                   fontSize: '0.72rem',
                   fontWeight: 600,
                   cursor: 'pointer',
                 }}
               >
-                Dừng & Gửi
+                Mở quyền cho AI
               </button>
             </div>
-          )}
+          </div>
+        )}
 
-          {speechError && (
-            <div
-              style={{
-                fontSize: '0.74rem',
-                color: '#DC2626',
-                background: '#FEF2F2',
-                border: '1px solid #FECACA',
-                borderRadius: 8,
-                padding: '7px 10px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 8,
-                lineHeight: 1.4,
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
-                <AlertTriangle size={14} style={{ color: '#DC2626', flexShrink: 0 }} />
-                <span>{speechError}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSpeechError(null)}
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  color: '#991B1B',
-                  fontWeight: 700,
-                  fontSize: '0.85rem',
-                  cursor: 'pointer',
-                  padding: '0 2px',
-                  lineHeight: 1,
-                }}
-                title="Đóng thông báo"
-              >
-                ✕
-              </button>
-            </div>
-          )}
-
-          {/* Bottom actions row: Mic button + Send button */}
+        {/* ── Just Completed Toast ── */}
+        {justCompletedToast && (
           <div
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              paddingTop: 4,
-            }}
-          >
-            {/* Mic button with text matching mockup */}
-            <button
-              onClick={toggleListening}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '7px 12px',
-                borderRadius: 8,
-                fontSize: '0.82rem',
-                color: isListening ? '#DC2626' : '#475569',
-                background: isListening ? '#FEF2F2' : '#F8FAFC',
-                border: '1px solid',
-                borderColor: isListening ? '#FCA5A5' : '#E2E8F0',
-                fontWeight: 500,
-                transition: 'all 0.2s',
-                cursor: 'pointer',
-              }}
-              title={isListening ? 'Nhấn để dừng thu âm' : 'Nhấn để nói tiếng Việt bằng Web Speech API'}
-            >
-              {isListening ? (
-                <>
-                  <MicOff size={15} style={{ color: '#DC2626' }} />
-                  <span>Dừng thu âm</span>
-                </>
-              ) : (
-                <>
-                  <Mic size={15} style={{ color: '#6C5CE7' }} />
-                  <span>Nhập giọng nói</span>
-                </>
-              )}
-            </button>
-
-            {/* Send button */}
-            <button
-              onClick={handleSend}
-              disabled={isLoading || !inputText.trim()}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '7px 18px',
-                background: isLoading ? '#94A3B8' : !inputText.trim() ? '#E2E8F0' : '#6C5CE7',
-                color: !inputText.trim() && !isLoading ? '#94A3B8' : '#FFFFFF',
-                borderRadius: 8,
-                fontSize: '0.83rem',
-                fontWeight: 600,
-                boxShadow: !inputText.trim() || isLoading ? 'none' : '0 1px 3px rgba(108,92,231,0.3)',
-                cursor: isLoading || !inputText.trim() ? 'not-allowed' : 'pointer',
-                border: 'none',
-                transition: 'all 0.2s',
-              }}
-              title="Nhấn để phân tích và lập lịch"
-            >
-              {isLoading ? (
-                <Loader2 size={15} className="animate-spin" />
-              ) : (
-                <ArrowUp size={15} strokeWidth={2.5} />
-              )}
-              <span>{isLoading ? 'Đang phân tích...' : 'Gửi'}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Input helper shortcut hint */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            fontSize: '0.7rem',
-            color: '#94A3B8',
-            marginTop: 5,
-            padding: '0 4px',
-          }}
-        >
-          <span>💡 Nhấn <b>Enter</b> để gửi, <b>Shift+Enter</b> xuống dòng</span>
-          {inputText.trim() && <span>{inputText.trim().length} ký tự</span>}
-        </div>
-      </div>
-
-      {/* ── AI Thinking & Shimmering Transition State ── */}
-      {isLoading && (
-        <div
-          style={{
-            margin: '0 20px',
-            padding: '20px',
-            background: 'linear-gradient(135deg, rgba(255,255,255,0.95), rgba(248,250,252,0.95))',
-            border: '1.5px solid rgba(108, 92, 231, 0.35)',
-            borderRadius: 16,
-            animation: 'aiPulseGlow 2.5s infinite ease-in-out',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 14,
-          }}
-        >
-          {/* Top thinking indicator */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div
-              style={{
-                width: 34,
-                height: 34,
-                borderRadius: 10,
-                background: 'linear-gradient(135deg, #6C5CE7, #a29bfe)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#FFFFFF',
-                boxShadow: '0 4px 10px rgba(108,92,231,0.3)',
-                flexShrink: 0,
-              }}
-            >
-              <Sparkles size={18} className="animate-spin" style={{ animationDuration: '3s' }} />
-            </div>
-
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div
-                style={{
-                  fontSize: '0.85rem',
-                  fontWeight: 700,
-                  color: '#1E293B',
-                  animation: 'thoughtFadeIn 0.35s ease-out',
-                }}
-                key={thinkingStep}
-              >
-                {thinkingStep === 0 && 'Đang phân tích câu lệnh tiếng Việt...'}
-                {thinkingStep === 1 && 'Đang đối chiếu lịch tuần của bạn...'}
-                {thinkingStep === 2 && 'Đang hoàn thiện đề xuất lịch trình...'}
-              </div>
-              <div
-                style={{
-                  fontSize: '0.72rem',
-                  color: '#64748B',
-                  marginTop: 2,
-                  animation: 'thoughtFadeIn 0.35s ease-out',
-                }}
-                key={`sub-${thinkingStep}`}
-              >
-                {thinkingStep === 0 && 'Trích xuất nội dung, thể loại và dải giờ'}
-                {thinkingStep === 1 && 'Kiểm tra xung đột & tìm khung giờ năng suất nhất'}
-                {thinkingStep === 2 && 'Sắp xếp thông minh & chuẩn bị thẻ xác nhận'}
-              </div>
-            </div>
-
-            {/* Bouncing dots */}
-            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#6C5CE7', animation: 'dotPulse 1.4s infinite ease-in-out 0s' }} />
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#6C5CE7', animation: 'dotPulse 1.4s infinite ease-in-out 0.2s' }} />
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#6C5CE7', animation: 'dotPulse 1.4s infinite ease-in-out 0.4s' }} />
-            </div>
-          </div>
-
-          {/* Skeleton Shimmer Preview Placeholder */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, opacity: 0.75 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div
-                style={{
-                  width: 80,
-                  height: 18,
-                  borderRadius: 12,
-                  background: 'linear-gradient(90deg, #E2E8F0 25%, #F1F5F9 50%, #E2E8F0 75%)',
-                  backgroundSize: '200% 100%',
-                  animation: 'aiShimmer 1.8s infinite',
-                }}
-              />
-              <div
-                style={{
-                  width: 65,
-                  height: 18,
-                  borderRadius: 12,
-                  background: 'linear-gradient(90deg, #E2E8F0 25%, #F1F5F9 50%, #E2E8F0 75%)',
-                  backgroundSize: '200% 100%',
-                  animation: 'aiShimmer 1.8s infinite',
-                }}
-              />
-            </div>
-            <div
-              style={{
-                width: '70%',
-                height: 22,
-                borderRadius: 6,
-                background: 'linear-gradient(90deg, #E2E8F0 25%, #F1F5F9 50%, #E2E8F0 75%)',
-                backgroundSize: '200% 100%',
-                animation: 'aiShimmer 1.8s infinite',
-              }}
-            />
-            <div
-              style={{
-                width: '50%',
-                height: 14,
-                borderRadius: 4,
-                background: 'linear-gradient(90deg, #E2E8F0 25%, #F1F5F9 50%, #E2E8F0 75%)',
-                backgroundSize: '200% 100%',
-                animation: 'aiShimmer 1.8s infinite',
-              }}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* ── Error Banner ── */}
-      {apiError && !isLoading && (
-        <div
-          style={{
-            margin: '0 20px',
-            padding: '12px',
-            background: '#FEF2F2',
-            border: '1px solid #FECACA',
-            borderRadius: 10,
-            color: '#B91C1C',
-            fontSize: '0.8rem',
-          }}
-        >
-          {apiError}
-        </div>
-      )}
-
-      {/* ── AI Response / Feedback / Proposal Card ── */}
-      {parsedTask && !isLoading && (
-        parsedTask.isValidTask === false ? (
-          <div
-            style={{
-              padding: '0 20px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
-              animation: 'cardSpringEnter 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards',
-            }}
-          >
-            {/* Header */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                fontSize: '0.86rem',
-                fontWeight: 700,
-                color: parsedTask.validationType === 'INAPPROPRIATE'
-                  ? '#DC2626'
-                  : parsedTask.validationType === 'GREETING'
-                  ? '#4F46E5'
-                  : '#D97706',
-              }}
-            >
-              <div
-                style={{
-                  width: 26,
-                  height: 26,
-                  borderRadius: 7,
-                  background: parsedTask.validationType === 'INAPPROPRIATE'
-                    ? '#FEE2E2'
-                    : parsedTask.validationType === 'GREETING'
-                    ? '#EEF2FF'
-                    : '#FEF3C7',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: parsedTask.validationType === 'INAPPROPRIATE'
-                    ? '#DC2626'
-                    : parsedTask.validationType === 'GREETING'
-                    ? '#4F46E5'
-                    : '#D97706',
-                }}
-              >
-                {parsedTask.validationType === 'INAPPROPRIATE' ? (
-                  <ShieldAlert size={15} />
-                ) : parsedTask.validationType === 'GREETING' ? (
-                  <MessageSquare size={15} />
-                ) : (
-                  <HelpCircle size={15} />
-                )}
-              </div>
-              <span>
-                {parsedTask.validationType === 'INAPPROPRIATE'
-                  ? 'Nội dung không phù hợp'
-                  : parsedTask.validationType === 'GREETING'
-                  ? 'Trợ lý SmartTask AI'
-                  : 'Chưa đủ thông tin công việc'}
-              </span>
-            </div>
-
-            {/* Content feedback box */}
-            <div
-              style={{
-                background: parsedTask.validationType === 'INAPPROPRIATE'
-                  ? '#FEF2F2'
-                  : parsedTask.validationType === 'GREETING'
-                  ? '#F8FAFC'
-                  : '#FFFBEB',
-                border: `1.5px solid ${
-                  parsedTask.validationType === 'INAPPROPRIATE'
-                    ? '#FECACA'
-                    : parsedTask.validationType === 'GREETING'
-                    ? '#E2E8F0'
-                    : '#FDE68A'
-                }`,
-                borderRadius: 14,
-                padding: '16px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 12,
-                boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
-              }}
-            >
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: '0.84rem',
-                  lineHeight: 1.55,
-                  color: parsedTask.validationType === 'INAPPROPRIATE'
-                    ? '#991B1B'
-                    : parsedTask.validationType === 'GREETING'
-                    ? '#334155'
-                    : '#92400E',
-                  fontWeight: 500,
-                }}
-              >
-                {parsedTask.validationMessage ||
-                  'Nội dung chưa đủ cụ thể để lên lịch trình. Vui lòng nhập việc cần làm kèm thời gian bạn nhé.'}
-              </p>
-
-              {/* Sample quick-pick chips if greeting or nonsense */}
-              {parsedTask.validationType !== 'INAPPROPRIATE' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 2 }}>
-                  <div style={{ fontSize: '0.74rem', fontWeight: 600, color: '#64748B' }}>
-                    💡 Thử bấm chọn mẫu để SmartTask lên lịch ngay:
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {[
-                      { text: 'Học tiếng Anh 1 tiếng lúc 20h tối mai', icon: '📚' },
-                      { text: 'Chạy bộ 30 phút vào 6h sáng mai', icon: '🏃' },
-                      { text: 'Họp nhóm đồ án lúc 9h sáng thứ 6', icon: '💻' },
-                    ].map((item, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => {
-                          setInputText(item.text);
-                          executeAiParse(item.text);
-                        }}
-                        style={{
-                          padding: '8px 12px',
-                          background: '#FFFFFF',
-                          border: '1px solid #E2E8F0',
-                          borderRadius: 8,
-                          fontSize: '0.78rem',
-                          color: '#4338CA',
-                          fontWeight: 600,
-                          textAlign: 'left',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          transition: 'all 0.15s ease',
-                          boxShadow: '0 1px 2px rgba(0,0,0,0.02)',
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.borderColor = '#6366F1';
-                          e.currentTarget.style.background = '#EEF2FF';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.borderColor = '#E2E8F0';
-                          e.currentTarget.style.background = '#FFFFFF';
-                        }}
-                      >
-                        <span>{item.icon}</span>
-                        <span style={{ flex: 1 }}>{item.text}</span>
-                        <span style={{ fontSize: '0.72rem', color: '#6366F1' }}>Lên lịch →</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div
-            style={{
-              padding: '0 20px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 14,
-              animation: 'cardSpringEnter 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards',
-            }}
-          >
-          {/* Header divider */}
-          <div
-            style={{
+              margin: '0 20px 10px',
+              padding: '10px 14px',
+              background: 'linear-gradient(135deg, #ECFDF5, #F0FDF4)',
+              border: '1.5px solid #A7F3D0',
+              borderRadius: 10,
               display: 'flex',
               alignItems: 'center',
               gap: 8,
-              fontSize: '0.86rem',
-              fontWeight: 700,
-              color: '#1E293B',
+              color: '#065F46',
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              boxShadow: '0 2px 8px rgba(16,185,129,0.12)',
+              animation: 'cardSpringEnter 0.3s ease-out',
             }}
           >
-            <div
+            <CheckCircle2 size={16} style={{ color: '#10B981', flexShrink: 0 }} />
+            <span>{justCompletedToast}</span>
+          </div>
+        )}
+
+        {/* ── Auto-schedule Toggle Switch (Phía trên ô textbox nhập) ── */}
+        <div
+          className={`ai-auto-toggle-box ${autoSchedule ? 'is-active' : ''}`}
+          style={{
+            margin: isCompact ? '0 12px 12px' : '0 20px 14px',
+            padding: isCompact ? '6px 10px' : '8px 12px',
+            background: autoSchedule ? '#F0FDF4' : '#F8FAFC',
+            border: `1px solid ${autoSchedule ? '#BBF7D0' : '#E2E8F0'}`,
+            borderRadius: 10,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            transition: 'all 0.25s ease',
+            userSelect: 'none',
+          }}
+        >
+          <div
+            onClick={() => handleToggleAutoSchedule(!autoSchedule)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 7,
+              cursor: 'pointer',
+              flex: 1,
+              minWidth: 0,
+            }}
+            title={autoSchedule ? 'Đang bật tự động thêm vào lịch' : 'Bật tự động thêm vào lịch mà không cần xác nhận'}
+          >
+            <Zap
+              size={14}
               style={{
-                width: 24,
-                height: 24,
-                borderRadius: 6,
-                background: '#EEF2FF',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#6C5CE7',
+                color: autoSchedule ? '#10B981' : '#94A3B8',
+                transition: 'color 0.2s',
+                flexShrink: 0,
+              }}
+            />
+            <span
+              className="ai-auto-toggle-text"
+              style={{
+                fontSize: isCompact ? '0.74rem' : '0.78rem',
+                fontWeight: 600,
+                color: autoSchedule ? '#15803D' : '#475569',
+                transition: 'color 0.2s',
+                lineHeight: 1.3,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: isCompact ? 'nowrap' : 'normal',
               }}
             >
-              <Sparkles size={14} />
-            </div>
-            <span>
-              {parsedTask.tasks && parsedTask.tasks.length > 1
-                ? `Đề xuất ${parsedTask.tasks.length} lịch trình phù hợp`
-                : 'Đề xuất lịch trình phù hợp'}
+              {isMini
+                ? 'Tự thêm'
+                : isUltraCompact
+                  ? 'Tự động thêm vào lịch'
+                  : 'Tự động thêm vào lịch mà không cần xác nhận'}
             </span>
-            {parsedTask.tasks && parsedTask.tasks.length > 1 && (
-              <span
-                style={{
-                  marginLeft: 'auto',
-                  fontSize: '0.72rem',
-                  fontWeight: 600,
-                  color: '#6C5CE7',
-                  background: '#EEF2FF',
-                  padding: '2px 8px',
-                  borderRadius: 10,
-                }}
-              >
-                {parsedTask.tasks.length} công việc
-              </span>
-            )}
           </div>
 
-          {parsedTask.tasks && parsedTask.tasks.length > 1 ? (
-            /* ── Multi-Task Stacked Cards ── */
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {parsedTask.tasks.map((taskItem, idx) => (
-                <div
-                  key={idx}
+          <button
+            id="auto-schedule-toggle"
+            type="button"
+            role="switch"
+            aria-checked={autoSchedule}
+            onClick={() => handleToggleAutoSchedule(!autoSchedule)}
+            style={{
+              width: 34,
+              height: 18,
+              borderRadius: 12,
+              background: autoSchedule ? '#10B981' : '#CBD5E1',
+              border: 'none',
+              cursor: 'pointer',
+              position: 'relative',
+              padding: 0,
+              transition: 'background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+              outline: 'none',
+              flexShrink: 0,
+              marginLeft: 6,
+            }}
+            title={autoSchedule ? 'Đang bật tự động thêm vào lịch' : 'Bật tự động thêm vào lịch mà không cần xác nhận'}
+          >
+            <span
+              style={{
+                display: 'block',
+                width: 14,
+                height: 14,
+                borderRadius: '50%',
+                background: '#FFFFFF',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                position: 'absolute',
+                top: 2,
+                left: autoSchedule ? 18 : 2,
+                transition: 'left 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+              }}
+            />
+          </button>
+        </div>
+
+        {/* ── Input Card with Mic & Send ── */}
+        <div style={{ padding: isCompact ? '0 12px 14px' : '0 20px 14px' }}>
+          <div
+            className="ai-input-card-box"
+            style={{
+              background: '#FFFFFF',
+              border: isListening
+                ? '1.5px solid #EF4444'
+                : isFocused
+                  ? '1.5px solid #6C5CE7'
+                  : '1px solid #E2E8F0',
+              borderRadius: 12,
+              padding: isCompact ? '10px 12px 8px' : '12px 14px 10px',
+              boxShadow: isListening
+                ? '0 0 0 3px rgba(239, 68, 68, 0.15)'
+                : isFocused
+                  ? '0 0 0 3px rgba(108, 92, 231, 0.12)'
+                  : '0 1px 3px rgba(0,0,0,0.05)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              transition: 'all 0.2s ease',
+            }}
+          >
+            {/* Text input area with clear button */}
+            <div style={{ position: 'relative', width: '100%' }}>
+              <textarea
+                ref={textareaRef}
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                onFocus={() => setIsFocused(true)}
+                onBlur={() => setIsFocused(false)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (!isLoading && inputText.trim()) {
+                      handleSend();
+                    }
+                  }
+                }}
+                rows={2}
+                placeholder={
+                  isMini
+                    ? 'Gõ hoặc nói việc...'
+                    : isCompact
+                      ? 'Nhập công việc...'
+                      : 'Nói hoặc gõ công việc cần làm... (Ví dụ: Đọc sách sáng mai lúc 8h)'
+                }
+                style={{
+                  width: '100%',
+                  border: 'none',
+                  outline: 'none',
+                  resize: 'none',
+                  fontSize: isCompact ? '0.82rem' : '0.88rem',
+                  fontFamily: 'inherit',
+                  color: 'inherit',
+                  lineHeight: 1.5,
+                  background: 'transparent',
+                  paddingRight: inputText ? 28 : 0,
+                  boxSizing: 'border-box',
+                  overflowY: 'auto',
+                }}
+              />
+
+              {/* Quick clear button (✕) */}
+              {inputText && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInputText('');
+                    textareaRef.current?.focus();
+                  }}
                   style={{
-                    background: '#F8FAFC',
-                    border: '1px solid #E2E8F0',
-                    borderRadius: 14,
-                    padding: '14px 16px',
+                    position: 'absolute',
+                    top: 0,
+                    right: 0,
+                    background: '#F1F5F9',
+                    border: 'none',
+                    borderRadius: '50%',
+                    width: 20,
+                    height: 20,
                     display: 'flex',
-                    flexDirection: 'column',
-                    gap: 8,
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
-                    transition: 'all 0.2s ease',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    color: '#64748B',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    transition: 'all 0.15s',
+                  }}
+                  title="Xóa nhanh (Clear)"
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#E2E8F0';
+                    e.currentTarget.style.color = '#0F172A';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#F1F5F9';
+                    e.currentTarget.style.color = '#64748B';
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span
-                        style={{
-                          fontSize: '0.72rem',
-                          fontWeight: 700,
-                          color: '#4F46E5',
-                          background: '#EEF2FF',
-                          padding: '2px 7px',
-                          borderRadius: 6,
-                        }}
-                      >
-                        #{idx + 1}
-                      </span>
-                      <div
-                        style={{
-                          fontSize: '0.72rem',
-                          color: taskItem.categoryType === 'STUDY' ? '#7C3AED' : taskItem.categoryType === 'HEALTH' ? '#059669' : taskItem.categoryType === 'ENTERTAINMENT' ? '#D97706' : '#2563EB',
-                          fontWeight: 700,
-                          letterSpacing: '0.04em',
-                          background: taskItem.categoryType === 'STUDY' ? '#F5F3FF' : taskItem.categoryType === 'HEALTH' ? '#ECFDF5' : taskItem.categoryType === 'ENTERTAINMENT' ? '#FFFBEB' : '#EFF6FF',
-                          padding: '3px 9px',
-                          borderRadius: 12,
-                        }}
-                      >
-                        {getCategoryLabel(taskItem.categoryType)}
-                      </div>
-                    </div>
-                    <div
-                      style={{
-                        fontSize: '0.72rem',
-                        fontWeight: 600,
-                        color: getPriorityColor(taskItem.priority),
-                        background: '#FFFFFF',
-                        padding: '2px 8px',
-                        borderRadius: 12,
-                        border: '1px solid #E2E8F0',
-                      }}
-                    >
-                      {getPriorityLabel(taskItem.priority)}
-                    </div>
-                  </div>
-
-                  <div style={{ fontSize: '1rem', fontWeight: 700, color: '#0F172A', marginTop: 2 }}>
-                    {taskItem.title}
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem', color: '#475569' }}>
-                    <CalendarIcon size={14} style={{ color: '#6C5CE7', flexShrink: 0 }} />
-                    <span style={{ fontWeight: 500 }}>{taskItem.formattedDateLabel}</span>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem', color: '#475569' }}>
-                    <Flag size={14} style={{ color: '#64748B', flexShrink: 0 }} />
-                    <span>Thời lượng ước tính: {taskItem.estimatedDurationMinutes} phút</span>
-                  </div>
-
-                  {taskItem.note && (
-                    <p style={{ fontSize: '0.76rem', color: '#64748B', lineHeight: 1.45, margin: '2px 0 0 0', fontStyle: 'italic' }}>
-                      💬 {taskItem.note}
-                    </p>
-                  )}
-
-                  {/* Conflict warning for individual task */}
-                  {taskItem.hasConflict && (
-                    <div
-                      style={{
-                        marginTop: 4,
-                        background: '#FFF7ED',
-                        border: '1px solid #FED7AA',
-                        borderRadius: 8,
-                        padding: '8px 10px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 3,
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#C2410C', fontWeight: 600, fontSize: '0.78rem' }}>
-                        <AlertTriangle size={14} />
-                        <span>Khung giờ này đang bận</span>
-                      </div>
-                      <p style={{ fontSize: '0.74rem', color: '#9A3412', lineHeight: 1.4, margin: 0 }}>
-                        {taskItem.conflictMessage}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              ))}
-
-              {/* Master Confirmation or Action for multi-task */}
-              {isConfirmed ? (
-                <div
-                  style={{
-                    padding: '14px',
-                    background: 'linear-gradient(135deg, #ECFDF5, #F0FDF4)',
-                    border: '1.5px solid #A7F3D0',
-                    borderRadius: 12,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 10,
-                    animation: 'cardSpringEnter 0.35s ease-out',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#065F46' }}>
-                    <CheckCircle2 size={18} style={{ color: '#10B981', flexShrink: 0 }} />
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: '0.86rem' }}>
-                        Đã lưu an toàn cả {parsedTask.tasks.length} công việc vào lịch!
-                      </div>
-                      <div style={{ fontSize: '0.74rem', color: '#047857' }}>
-                        Tất cả các công việc đã hiển thị trên bảng thời gian của bạn.
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={handleStartNewTask}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 6,
-                      padding: '9px 12px',
-                      background: '#6C5CE7',
-                      border: 'none',
-                      borderRadius: 8,
-                      fontSize: '0.82rem',
-                      fontWeight: 600,
-                      color: '#FFFFFF',
-                      cursor: 'pointer',
-                      boxShadow: '0 2px 4px rgba(108,92,231,0.2)',
-                    }}
-                  >
-                    <PlusCircle size={14} />
-                    <span>Lên lịch công việc khác</span>
-                  </button>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
-                  <button
-                    onClick={() => handleConfirmSchedule(false)}
-                    disabled={isSubmitting}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8,
-                      padding: '12px 16px',
-                      background: 'linear-gradient(135deg, #4F46E5, #6C5CE7)',
-                      color: '#FFFFFF',
-                      borderRadius: 10,
-                      fontWeight: 600,
-                      fontSize: '0.88rem',
-                      boxShadow: '0 3px 8px rgba(79,70,229,0.3)',
-                      cursor: isSubmitting ? 'not-allowed' : 'pointer',
-                      opacity: isSubmitting ? 0.75 : 1,
-                      border: 'none',
-                      transition: 'all 0.2s',
-                    }}
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <Loader2 size={16} className="animate-spin" />
-                        <span>Đang lưu cả {parsedTask.tasks.length} việc vào lịch...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>→ Xác nhận & thêm cả {parsedTask.tasks.length} việc vào lịch</span>
-                      </>
-                    )}
-                  </button>
-
-                  <button
-                    onClick={handleStartNewTask}
-                    style={{
-                      textAlign: 'center',
-                      color: '#64748B',
-                      fontSize: '0.8rem',
-                      fontWeight: 500,
-                      padding: '6px 0',
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Hủy bỏ đề xuất này
-                  </button>
-                </div>
+                  ✕
+                </button>
               )}
             </div>
-          ) : (
-            /* Single Details Card */
-            <div
-              style={{
-                background: '#F8FAFC',
-                border: '1px solid #E2E8F0',
-                borderRadius: 14,
-                padding: '16px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 10,
-                boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div
+
+            {/* Speech recording banner if listening */}
+            {isListening && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: '0.78rem',
+                  color: '#DC2626',
+                  background: '#FEF2F2',
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  fontWeight: 600,
+                  border: '1px solid #FECACA',
+                }}
+              >
+                <span
                   style={{
-                    fontSize: '0.72rem',
-                    color: parsedTask.categoryType === 'STUDY' ? '#7C3AED' : parsedTask.categoryType === 'HEALTH' ? '#059669' : parsedTask.categoryType === 'ENTERTAINMENT' ? '#D97706' : '#2563EB',
-                    fontWeight: 700,
-                    letterSpacing: '0.04em',
-                    background: parsedTask.categoryType === 'STUDY' ? '#F5F3FF' : parsedTask.categoryType === 'HEALTH' ? '#ECFDF5' : parsedTask.categoryType === 'ENTERTAINMENT' ? '#FFFBEB' : '#EFF6FF',
-                    padding: '3px 9px',
-                    borderRadius: 12,
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    background: '#DC2626',
+                    animation: 'pulse-mic 1s infinite',
+                    flexShrink: 0,
                   }}
-                >
-                  {getCategoryLabel(parsedTask.categoryType)}
-                </div>
-                <div
+                />
+                <span style={{ flex: 1 }}>Đang lắng nghe giọng nói tiếng Việt... Hãy nói câu lệnh</span>
+                <button
+                  type="button"
+                  onClick={toggleListening}
                   style={{
+                    border: 'none',
+                    background: '#DC2626',
+                    color: '#FFFFFF',
+                    borderRadius: 6,
+                    padding: '2px 8px',
                     fontSize: '0.72rem',
                     fontWeight: 600,
-                    color: getPriorityColor(parsedTask.priority),
-                    background: '#FFFFFF',
-                    padding: '2px 8px',
-                    borderRadius: 12,
-                    border: '1px solid #E2E8F0',
+                    cursor: 'pointer',
                   }}
                 >
-                  {getPriorityLabel(parsedTask.priority)}
+                  Dừng & Gửi
+                </button>
+              </div>
+            )}
+
+            {speechError && (
+              <div
+                style={{
+                  fontSize: '0.74rem',
+                  color: '#DC2626',
+                  background: '#FEF2F2',
+                  border: '1px solid #FECACA',
+                  borderRadius: 8,
+                  padding: '7px 10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  lineHeight: 1.4,
+                }}
+              >
+                <div style={{ flex: 1 }}>
+                  <span>{speechError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSpeechError(null)}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    color: '#991B1B',
+                    fontWeight: 700,
+                    fontSize: '0.85rem',
+                    cursor: 'pointer',
+                    padding: '0 2px',
+                    lineHeight: 1,
+                  }}
+                  title="Đóng thông báo"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
+            {/* Bottom actions row: Mic button + Send button */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingTop: 4,
+                gap: 8,
+              }}
+            >
+              {/* Mic button with text matching mockup */}
+              <button
+                onClick={toggleListening}
+                className="ai-mic-btn-normal"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: isCompact || isLoading ? '6px 8px' : '7px 12px',
+                  borderRadius: 8,
+                  fontSize: isCompact || isLoading ? '0.78rem' : '0.82rem',
+                  color: isListening ? '#DC2626' : '#475569',
+                  background: isListening ? '#FEF2F2' : '#F8FAFC',
+                  border: '1px solid',
+                  borderColor: isListening ? '#FCA5A5' : '#E2E8F0',
+                  fontWeight: 500,
+                  transition: 'all 0.2s',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                }}
+                title={isListening ? 'Nhấn để dừng thu âm' : 'Nhấn để nói tiếng Việt bằng Web Speech API'}
+              >
+                {isListening ? (
+                  <>
+                    <MicOff size={15} style={{ color: '#DC2626' }} />
+                    <span className="ai-mic-label">{isUltraCompact ? 'Dừng' : 'Dừng thu âm'}</span>
+                  </>
+                ) : (
+                  <>
+                    <Mic size={15} style={{ color: '#6C5CE7' }} />
+                    <span className="ai-mic-label">{isUltraCompact ? 'Nói' : 'Nhập giọng nói'}</span>
+                  </>
+                )}
+              </button>
+
+              {/* Send button */}
+              <button
+                onClick={handleSend}
+                disabled={isLoading || !inputText.trim()}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: isMini ? '6px 10px' : isCompact || isLoading ? '7px 12px' : '7px 18px',
+                  background: isLoading ? '#94A3B8' : !inputText.trim() ? '#E2E8F0' : '#6C5CE7',
+                  color: !inputText.trim() && !isLoading ? '#94A3B8' : '#FFFFFF',
+                  borderRadius: 8,
+                  fontSize: '0.83rem',
+                  fontWeight: 600,
+                  boxShadow: !inputText.trim() || isLoading ? 'none' : '0 1px 3px rgba(108,92,231,0.3)',
+                  cursor: isLoading || !inputText.trim() ? 'not-allowed' : 'pointer',
+                  border: 'none',
+                  transition: 'all 0.2s',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                }}
+                title="Nhấn để phân tích và lập lịch"
+              >
+                {isLoading ? (
+                  <Loader2 size={15} className="animate-spin" />
+                ) : (
+                  <ArrowUp size={15} strokeWidth={2.5} />
+                )}
+                {!isMini && <span>{isLoading ? 'Đang gửi...' : 'Gửi'}</span>}
+              </button>
+            </div>
+          </div>
+
+          {/* Input helper shortcut hint */}
+          {!isMini && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                fontSize: '0.72rem',
+                color: 'var(--text-3)',
+                fontWeight: 500,
+                marginTop: 6,
+                padding: '0 4px',
+              }}
+            >
+              <span>Nhấn <b>Enter</b> để gửi, <b>Shift+Enter</b> xuống dòng</span>
+              {inputText.trim() && <span>{inputText.trim().length} ký tự</span>}
+            </div>
+          )}
+        </div>
+
+        {/* ── AI Thinking & Shimmering Transition State ── */}
+        {isLoading && (
+          <div
+            style={{
+              margin: '0 20px',
+              padding: '20px',
+              background: 'linear-gradient(135deg, rgba(255,255,255,0.95), rgba(248,250,252,0.95))',
+              border: '1.5px solid rgba(108, 92, 231, 0.35)',
+              borderRadius: 16,
+              animation: 'aiPulseGlow 2.5s infinite ease-in-out',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 14,
+            }}
+          >
+            {/* Top thinking indicator */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 10,
+                  background: 'linear-gradient(135deg, #6C5CE7, #a29bfe)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#FFFFFF',
+                  boxShadow: '0 4px 10px rgba(108,92,231,0.3)',
+                  flexShrink: 0,
+                }}
+              >
+                <Sparkles size={18} className="animate-spin" style={{ animationDuration: '3s' }} />
+              </div>
+
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    fontSize: '0.85rem',
+                    fontWeight: 700,
+                    color: '#1E293B',
+                    animation: 'thoughtFadeIn 0.35s ease-out',
+                  }}
+                  key={thinkingStep}
+                >
+                  {thinkingStep === 0 && 'Đang phân tích câu lệnh tiếng Việt...'}
+                  {thinkingStep === 1 && 'Đang đối chiếu lịch tuần của bạn...'}
+                  {thinkingStep === 2 && 'Đang hoàn thiện đề xuất lịch trình...'}
+                </div>
+                <div
+                  style={{
+                    fontSize: '0.72rem',
+                    color: '#64748B',
+                    marginTop: 2,
+                    animation: 'thoughtFadeIn 0.35s ease-out',
+                  }}
+                  key={`sub-${thinkingStep}`}
+                >
+                  {thinkingStep === 0 && 'Trích xuất nội dung, thể loại và dải giờ'}
+                  {thinkingStep === 1 && 'Kiểm tra xung đột & tìm khung giờ năng suất nhất'}
+                  {thinkingStep === 2 && 'Sắp xếp thông minh & chuẩn bị thẻ xác nhận'}
                 </div>
               </div>
 
-              <div style={{ fontSize: '1.02rem', fontWeight: 700, color: '#0F172A', marginTop: 2 }}>
-                {parsedTask.title}
+              {/* Bouncing dots */}
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#6C5CE7', animation: 'dotPulse 1.4s infinite ease-in-out 0s' }} />
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#6C5CE7', animation: 'dotPulse 1.4s infinite ease-in-out 0.2s' }} />
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#6C5CE7', animation: 'dotPulse 1.4s infinite ease-in-out 0.4s' }} />
+              </div>
+            </div>
+
+            {/* Skeleton Shimmer Preview Placeholder */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, opacity: 0.75 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div
+                  style={{
+                    width: 80,
+                    height: 18,
+                    borderRadius: 12,
+                    background: 'linear-gradient(90deg, #E2E8F0 25%, #F1F5F9 50%, #E2E8F0 75%)',
+                    backgroundSize: '200% 100%',
+                    animation: 'aiShimmer 1.8s infinite',
+                  }}
+                />
+                <div
+                  style={{
+                    width: 65,
+                    height: 18,
+                    borderRadius: 12,
+                    background: 'linear-gradient(90deg, #E2E8F0 25%, #F1F5F9 50%, #E2E8F0 75%)',
+                    backgroundSize: '200% 100%',
+                    animation: 'aiShimmer 1.8s infinite',
+                  }}
+                />
+              </div>
+              <div
+                style={{
+                  width: '70%',
+                  height: 22,
+                  borderRadius: 6,
+                  background: 'linear-gradient(90deg, #E2E8F0 25%, #F1F5F9 50%, #E2E8F0 75%)',
+                  backgroundSize: '200% 100%',
+                  animation: 'aiShimmer 1.8s infinite',
+                }}
+              />
+              <div
+                style={{
+                  width: '50%',
+                  height: 14,
+                  borderRadius: 4,
+                  background: 'linear-gradient(90deg, #E2E8F0 25%, #F1F5F9 50%, #E2E8F0 75%)',
+                  backgroundSize: '200% 100%',
+                  animation: 'aiShimmer 1.8s infinite',
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* ── Error Banner ── */}
+        {apiError && !isLoading && (
+          <div
+            style={{
+              margin: '0 20px',
+              padding: '12px',
+              background: '#FEF2F2',
+              border: '1px solid #FECACA',
+              borderRadius: 10,
+              color: '#B91C1C',
+              fontSize: '0.8rem',
+            }}
+          >
+            {apiError}
+          </div>
+        )}
+
+        {/* ── AI Response / Feedback / Proposal Card ── */}
+        {parsedTask && !isLoading && (
+          parsedTask.isValidTask === false ? (
+            <div
+              style={{
+                padding: '0 20px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+                animation: 'cardSpringEnter 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+              }}
+            >
+              {/* Header */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: '0.86rem',
+                  fontWeight: 700,
+                  color: parsedTask.validationType === 'INAPPROPRIATE'
+                    ? '#DC2626'
+                    : parsedTask.validationType === 'CHAT' || parsedTask.validationType === 'GREETING'
+                      ? '#16A34A'
+                      : '#D97706',
+                }}
+              >
+                <div
+                  style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: 7,
+                    background: parsedTask.validationType === 'INAPPROPRIATE'
+                      ? '#FEE2E2'
+                      : parsedTask.validationType === 'CHAT' || parsedTask.validationType === 'GREETING'
+                        ? '#DCFCE7'
+                        : '#FEF3C7',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: parsedTask.validationType === 'INAPPROPRIATE'
+                      ? '#DC2626'
+                      : parsedTask.validationType === 'CHAT' || parsedTask.validationType === 'GREETING'
+                        ? '#16A34A'
+                        : '#D97706',
+                  }}
+                >
+                  {parsedTask.validationType === 'INAPPROPRIATE' ? (
+                    <ShieldAlert size={15} />
+                  ) : parsedTask.validationType === 'CHAT' || parsedTask.validationType === 'GREETING' ? (
+                    <Bot size={15} />
+                  ) : (
+                    <HelpCircle size={15} />
+                  )}
+                </div>
+                <span>
+                  {parsedTask.validationType === 'INAPPROPRIATE'
+                    ? 'Nội dung không phù hợp'
+                    : parsedTask.validationType === 'CHAT' || parsedTask.validationType === 'GREETING'
+                      ? 'Trợ lý SmartTask AI'
+                      : 'Chưa đủ thông tin công việc'}
+                </span>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem', color: '#475569' }}>
-                <CalendarIcon size={14} style={{ color: '#6C5CE7' }} />
-                <span style={{ fontWeight: 500 }}>{parsedTask.formattedDateLabel}</span>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem', color: '#475569' }}>
-                <Flag size={14} style={{ color: '#64748B' }} />
-                <span>Thời lượng ước tính: {parsedTask.estimatedDurationMinutes} phút</span>
-              </div>
-
-              {parsedTask.note && (
-                <p style={{ fontSize: '0.76rem', color: '#64748B', lineHeight: 1.45, margin: '2px 0 0 0', fontStyle: 'italic' }}>
-                  💬 {parsedTask.note}
+              {/* Content feedback box */}
+              <div
+                style={{
+                  background: parsedTask.validationType === 'INAPPROPRIATE'
+                    ? '#FEF2F2'
+                    : parsedTask.validationType === 'CHAT' || parsedTask.validationType === 'GREETING'
+                      ? '#F0FDF4'
+                      : '#FFFBEB',
+                  border: `1.5px solid ${parsedTask.validationType === 'INAPPROPRIATE'
+                    ? '#FECACA'
+                    : parsedTask.validationType === 'CHAT' || parsedTask.validationType === 'GREETING'
+                      ? '#86EFAC'
+                      : '#FDE68A'
+                    }`,
+                  borderRadius: 14,
+                  padding: '16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+                }}
+              >
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: '0.84rem',
+                    lineHeight: 1.55,
+                    color: parsedTask.validationType === 'INAPPROPRIATE'
+                      ? '#991B1B'
+                      : parsedTask.validationType === 'CHAT' || parsedTask.validationType === 'GREETING'
+                        ? '#166534'
+                        : '#92400E',
+                    fontWeight: 500,
+                  }}
+                >
+                  {parsedTask.validationMessage ||
+                    (parsedTask.validationType === 'CHAT' || parsedTask.validationType === 'GREETING'
+                      ? 'Chào bạn! SmartTask AI rất vui được hỗ trợ bạn. Bạn có công việc gì cần lên lịch không?'
+                      : 'Nội dung chưa đủ cụ thể để lên lịch trình. Vui lòng nhập việc cần làm kèm thời gian bạn nhé.')}
                 </p>
-              )}
 
-              {/* Lưu ý ngoài giờ làm việc & giờ nghỉ (chỉ hiển thị khi thực sự cần) */}
-              {(() => {
-                const check = checkWorkHoursConstraint(parsedTask.startTime, parsedTask.endTime, parsedTask.categoryType);
-                if (!check.isOutsideWorkHours) return null;
-                return (
-                  <div
+                {/* Sample quick-pick chips if greeting, chat, or nonsense */}
+                {parsedTask.validationType !== 'INAPPROPRIATE' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 2 }}>
+                    <div
+                      style={{
+                        fontSize: '0.74rem',
+                        fontWeight: 600,
+                        color: parsedTask.validationType === 'CHAT' || parsedTask.validationType === 'GREETING' ? '#15803D' : '#64748B',
+                      }}
+                    >
+                      Thử bấm chọn mẫu để SmartTask lên lịch ngay:
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {[
+                        { text: 'Học tiếng Anh 1 tiếng lúc 20h tối mai', icon: '📚' },
+                        { text: 'Chạy bộ 30 phút vào 6h sáng mai', icon: '🏃' },
+                        { text: 'Họp nhóm đồ án lúc 9h sáng thứ 6', icon: '💻' },
+                      ].map((item, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => {
+                            setInputText(item.text);
+                            executeAiParse(item.text);
+                          }}
+                          style={{
+                            padding: '8px 12px',
+                            background: '#FFFFFF',
+                            border: '1px solid #E2E8F0',
+                            borderRadius: 8,
+                            fontSize: '0.78rem',
+                            color: '#4338CA',
+                            fontWeight: 600,
+                            textAlign: 'left',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            transition: 'all 0.15s ease',
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.02)',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.borderColor = '#6366F1';
+                            e.currentTarget.style.background = '#EEF2FF';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.borderColor = '#E2E8F0';
+                            e.currentTarget.style.background = '#FFFFFF';
+                          }}
+                        >
+                          <span>{item.icon}</span>
+                          <span style={{ flex: 1 }}>{item.text}</span>
+                          <span style={{ fontSize: '0.72rem', color: '#6366F1' }}>Lên lịch →</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div
+              style={{
+                padding: '0 20px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 14,
+                animation: 'cardSpringEnter 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+              }}
+            >
+              {/* Header divider */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: '0.86rem',
+                  fontWeight: 700,
+                  color: '#1E293B',
+                }}
+              >
+                <div
+                  style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: 6,
+                    background: '#EEF2FF',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#6C5CE7',
+                  }}
+                >
+                  <Sparkles size={14} />
+                </div>
+                <span>
+                  {parsedTask.tasks && parsedTask.tasks.length > 1
+                    ? `Đề xuất ${parsedTask.tasks.length} lịch trình phù hợp`
+                    : 'Đề xuất lịch trình phù hợp'}
+                </span>
+                {parsedTask.tasks && parsedTask.tasks.length > 1 && (
+                  <span
                     style={{
-                      marginTop: 4,
-                      background: '#F8FAFC',
-                      border: '1px solid #E2E8F0',
-                      borderLeft: '3px solid #F59E0B',
-                      borderRadius: 8,
-                      padding: '8px 12px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 3,
+                      marginLeft: 'auto',
+                      fontSize: '0.72rem',
+                      fontWeight: 600,
+                      color: '#6C5CE7',
+                      background: '#EEF2FF',
+                      padding: '2px 8px',
+                      borderRadius: 10,
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#B45309', fontWeight: 600, fontSize: '0.8rem' }}>
-                      <Clock size={14} />
-                      <span>{check.promptTitle}</span>
-                    </div>
-                    <p style={{ fontSize: '0.75rem', color: '#475569', lineHeight: 1.4, margin: 0 }}>
-                      {check.reason}
-                    </p>
-                  </div>
-                );
-              })()}
+                    {parsedTask.tasks.length} công việc
+                  </span>
+                )}
+              </div>
 
-              {/* Amber Conflict Warning */}
-              {parsedTask.hasConflict && (
-                <div
-                  style={{
-                    marginTop: 6,
-                    background: '#FFF7ED',
-                    border: '1px solid #FED7AA',
-                    borderRadius: 8,
-                    padding: '10px 12px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 4,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#C2410C', fontWeight: 600, fontSize: '0.82rem' }}>
-                    <AlertTriangle size={15} />
-                    <span>Khung giờ này đang bận</span>
-                  </div>
-                  <p style={{ fontSize: '0.77rem', color: '#9A3412', lineHeight: 1.45, margin: 0 }}>
-                    {parsedTask.conflictMessage}
-                  </p>
-                </div>
-              )}
-
-              {/* Hộp xác nhận khi tạo việc ngoài giờ nghỉ */}
-              {offHoursPendingConfirm && (
-                <div
-                  style={{
-                    marginTop: 8,
-                    background: '#FFFBEB',
-                    border: '1.5px solid #FCD34D',
-                    borderRadius: 10,
-                    padding: '12px 14px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 8,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#B45309', fontWeight: 700, fontSize: '0.85rem' }}>
-                    <Clock size={16} />
-                    <span>{offHoursPendingConfirm.promptMessage}</span>
-                  </div>
-                  <p style={{ fontSize: '0.78rem', color: '#78350F', margin: 0 }}>
-                    {offHoursPendingConfirm.reason}
-                  </p>
-                  <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                    <button
-                      onClick={() => setOffHoursPendingConfirm(null)}
+              {parsedTask.tasks && parsedTask.tasks.length > 1 ? (
+                /* ── Multi-Task Stacked Cards ── */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {parsedTask.tasks.map((taskItem, idx) => (
+                    <div
+                      key={idx}
                       style={{
-                        flex: 1,
-                        padding: '7px 10px',
-                        background: '#FFFFFF',
-                        border: '1px solid #D1D5DB',
-                        borderRadius: 6,
-                        fontSize: '0.8rem',
-                        fontWeight: 600,
-                        color: '#4B5563',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Hủy bỏ
-                    </button>
-                    <button
-                      onClick={() => handleConfirmSchedule(offHoursPendingConfirm.useAlternative, true)}
-                      style={{
-                        flex: 1,
-                        padding: '7px 10px',
-                        background: '#D97706',
-                        border: 'none',
-                        borderRadius: 6,
-                        fontSize: '0.8rem',
-                        fontWeight: 600,
-                        color: '#FFFFFF',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Tiếp tục lưu lịch
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* ── Action State: Once Confirmed ── */}
-              {isConfirmed ? (
-                <div
-                  style={{
-                    marginTop: 8,
-                    padding: '14px',
-                    background: 'linear-gradient(135deg, #ECFDF5, #F0FDF4)',
-                    border: '1.5px solid #A7F3D0',
-                    borderRadius: 12,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 10,
-                    animation: 'cardSpringEnter 0.35s ease-out',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#065F46' }}>
-                    <CheckCircle2 size={18} style={{ color: '#10B981', flexShrink: 0 }} />
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: '0.86rem' }}>Đã lưu an toàn vào lịch!</div>
-                      <div style={{ fontSize: '0.74rem', color: '#047857' }}>Công việc đã hiển thị trên bảng thời gian của bạn.</div>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
-                    <button
-                      onClick={handleEditCreatedTask}
-                      style={{
-                        flex: 1,
+                        background: '#F8FAFC',
+                        border: '1px solid #E2E8F0',
+                        borderRadius: 14,
+                        padding: '14px 16px',
                         display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 6,
-                        padding: '8px 10px',
-                        background: '#FFFFFF',
-                        border: '1px solid #D1D5DB',
-                        borderRadius: 8,
-                        fontSize: '0.78rem',
-                        fontWeight: 600,
-                        color: '#374151',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s',
-                      }}
-                      title="Chỉnh sửa công việc này (không tạo trùng lặp)"
-                    >
-                      <Edit3 size={13} style={{ color: '#6C5CE7' }} />
-                      <span>Chỉnh sửa việc này</span>
-                    </button>
-
-                    <button
-                      onClick={handleStartNewTask}
-                      style={{
-                        flex: 1,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 6,
-                        padding: '8px 10px',
-                        background: '#6C5CE7',
-                        border: 'none',
-                        borderRadius: 8,
-                        fontSize: '0.78rem',
-                        fontWeight: 600,
-                        color: '#FFFFFF',
-                        cursor: 'pointer',
-                        boxShadow: '0 2px 4px rgba(108,92,231,0.2)',
+                        flexDirection: 'column',
+                        gap: 8,
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+                        transition: 'all 0.2s ease',
                       }}
                     >
-                      <PlusCircle size={13} />
-                      <span>Tạo việc khác</span>
-                    </button>
-                  </div>
-                </div>
-              ) : !offHoursPendingConfirm ? (
-                /* ── Action State: Not Confirmed Yet ── */
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 6 }}>
-                  {parsedTask.hasConflict ? (
-                    <>
-                      {/* Nút chính ưu tiên: Tự động chuyển sang giờ trống tiếp theo */}
-                      {parsedTask.suggestedAlternativeStartTime && (
-                        <button
-                          onClick={() => handleConfirmSchedule(true)}
-                          disabled={isSubmitting}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span
+                            style={{
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              color: '#4F46E5',
+                              background: '#EEF2FF',
+                              padding: '2px 7px',
+                              borderRadius: 6,
+                            }}
+                          >
+                            #{idx + 1}
+                          </span>
+                          <div
+                            style={{
+                              fontSize: '0.72rem',
+                              color: taskItem.categoryType === 'STUDY' ? '#7C3AED' : taskItem.categoryType === 'HEALTH' ? '#059669' : taskItem.categoryType === 'ENTERTAINMENT' ? '#D97706' : '#2563EB',
+                              fontWeight: 700,
+                              letterSpacing: '0.04em',
+                              background: taskItem.categoryType === 'STUDY' ? '#F5F3FF' : taskItem.categoryType === 'HEALTH' ? '#ECFDF5' : taskItem.categoryType === 'ENTERTAINMENT' ? '#FFFBEB' : '#EFF6FF',
+                              padding: '3px 9px',
+                              borderRadius: 12,
+                            }}
+                          >
+                            {getCategoryLabel(taskItem.categoryType)}
+                          </div>
+                        </div>
+                        <div
                           style={{
+                            fontSize: '0.72rem',
+                            fontWeight: 600,
+                            color: getPriorityColor(taskItem.priority),
+                            background: '#FFFFFF',
+                            padding: '2px 8px',
+                            borderRadius: 12,
+                            border: '1px solid #E2E8F0',
+                          }}
+                        >
+                          {getPriorityLabel(taskItem.priority)}
+                        </div>
+                      </div>
+
+                      <div style={{ fontSize: '1rem', fontWeight: 700, color: '#0F172A', marginTop: 2 }}>
+                        {taskItem.title}
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem', color: '#475569' }}>
+                        <CalendarIcon size={14} style={{ color: '#6C5CE7', flexShrink: 0 }} />
+                        <span style={{ fontWeight: 500 }}>{taskItem.formattedDateLabel}</span>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem', color: '#475569' }}>
+                        <Flag size={14} style={{ color: '#64748B', flexShrink: 0 }} />
+                        <span>Thời lượng ước tính: {taskItem.estimatedDurationMinutes} phút</span>
+                      </div>
+
+                      {taskItem.note && (
+                        <p style={{ fontSize: '0.76rem', color: '#64748B', lineHeight: 1.45, margin: '2px 0 0 0', fontStyle: 'italic' }}>
+                          💬 {taskItem.note}
+                        </p>
+                      )}
+
+                      {/* Conflict warning for individual task */}
+                      {taskItem.hasConflict && (
+                        <div
+                          style={{
+                            marginTop: 4,
+                            background: '#FFF7ED',
+                            border: '1px solid #FED7AA',
+                            borderRadius: 8,
+                            padding: '8px 10px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 3,
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#C2410C', fontWeight: 600, fontSize: '0.78rem' }}>
+                            <AlertTriangle size={14} />
+                            <span>Khung giờ này đang bận</span>
+                          </div>
+                          <p style={{ fontSize: '0.74rem', color: '#9A3412', lineHeight: 1.4, margin: 0 }}>
+                            {taskItem.conflictMessage}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  {/* Master Confirmation or Action for multi-task */}
+                  {isConfirmed ? (
+                    <div
+                      style={{
+                        padding: '14px',
+                        background: 'linear-gradient(135deg, #ECFDF5, #F0FDF4)',
+                        border: '1.5px solid #A7F3D0',
+                        borderRadius: 12,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 10,
+                        animation: 'cardSpringEnter 0.35s ease-out',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#065F46' }}>
+                        <CheckCircle2 size={18} style={{ color: '#10B981', flexShrink: 0 }} />
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: '0.86rem' }}>
+                            Đã lưu an toàn cả {parsedTask.tasks.length} công việc vào lịch!
+                          </div>
+                          <div style={{ fontSize: '0.74rem', color: '#047857' }}>
+                            Tất cả các công việc đã hiển thị trên bảng thời gian của bạn.
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                        <button
+                          onClick={handleFinishTask}
+                          style={{
+                            flex: '1 1 100%',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
                             gap: 6,
-                            padding: '10px 14px',
-                            background: '#4F46E5',
-                            color: '#FFFFFF',
-                            borderRadius: 8,
-                            fontWeight: 600,
-                            fontSize: '0.86rem',
-                            boxShadow: '0 2px 6px rgba(79,70,229,0.25)',
-                            cursor: isSubmitting ? 'not-allowed' : 'pointer',
-                            opacity: isSubmitting ? 0.75 : 1,
+                            padding: '9px 12px',
+                            background: '#10B981',
                             border: 'none',
+                            borderRadius: 8,
+                            fontSize: '0.82rem',
+                            fontWeight: 600,
+                            color: '#FFFFFF',
+                            cursor: 'pointer',
+                            boxShadow: '0 2px 5px rgba(16,185,129,0.25)',
+                            transition: 'all 0.15s ease',
+                          }}
+                          title="Xác nhận hoàn tất các công việc đã thêm vào lịch trình"
+                        >
+                          <Check size={15} />
+                          <span>Hoàn tất</span>
+                        </button>
+
+                        <button
+                          onClick={handleStartNewTask}
+                          style={{
+                            flex: '1 1 100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            padding: '8px 12px',
+                            background: '#6C5CE7',
+                            border: 'none',
+                            borderRadius: 8,
+                            fontSize: '0.8rem',
+                            fontWeight: 600,
+                            color: '#FFFFFF',
+                            cursor: 'pointer',
+                            boxShadow: '0 2px 4px rgba(108,92,231,0.2)',
                           }}
                         >
-                          {isSubmitting ? <Loader2 size={15} className="animate-spin" /> : <span>⚡</span>}
-                          <span>Chuyển sang giờ trống ({parsedTask.suggestedAlternativeStartTime.substring(11, 16)}–{parsedTask.suggestedAlternativeEndTime?.substring(11, 16)})</span>
+                          <PlusCircle size={14} />
+                          <span>Lên lịch công việc khác</span>
                         </button>
-                      )}
-
-                      {/* Nút phụ: Giữ nguyên giờ trùng */}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
                       <button
                         onClick={() => handleConfirmSchedule(false)}
                         disabled={isSubmitting}
@@ -1510,199 +1732,557 @@ export default function AIAssistantPanel({
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          gap: 6,
-                          padding: '8px 12px',
-                          background: '#FFF7ED',
-                          color: '#C2410C',
-                          border: '1px solid #FED7AA',
-                          borderRadius: 8,
+                          gap: 8,
+                          padding: '12px 16px',
+                          background: 'linear-gradient(135deg, #4F46E5, #6C5CE7)',
+                          color: '#FFFFFF',
+                          borderRadius: 10,
                           fontWeight: 600,
-                          fontSize: '0.8rem',
+                          fontSize: '0.88rem',
+                          boxShadow: '0 3px 8px rgba(79,70,229,0.3)',
                           cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                          opacity: isSubmitting ? 0.75 : 1,
+                          border: 'none',
+                          transition: 'all 0.2s',
                         }}
                       >
-                        <span>Vẫn giữ giờ này ({parsedTask.startTime.substring(11, 16)}–{parsedTask.endTime.substring(11, 16)})</span>
+                        {isSubmitting ? (
+                          <>
+                            <Loader2 size={16} className="animate-spin" />
+                            <span>Đang lưu cả {parsedTask.tasks.length} việc vào lịch...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>→ Xác nhận & thêm cả {parsedTask.tasks.length} việc vào lịch</span>
+                          </>
+                        )}
                       </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => handleConfirmSchedule(false)}
-                      disabled={isSubmitting}
+
+                      <button
+                        onClick={handleStartNewTask}
+                        style={{
+                          textAlign: 'center',
+                          color: '#64748B',
+                          fontSize: '0.8rem',
+                          fontWeight: 500,
+                          padding: '6px 0',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Hủy bỏ đề xuất này
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* Single Details Card */
+                <div
+                  style={{
+                    background: '#F8FAFC',
+                    border: '1px solid #E2E8F0',
+                    borderRadius: 14,
+                    padding: '16px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 10,
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 8,
-                        padding: '11px 16px',
-                        background: 'linear-gradient(135deg, #4F46E5, #6C5CE7)',
-                        color: '#FFFFFF',
-                        borderRadius: 10,
-                        fontWeight: 600,
-                        fontSize: '0.88rem',
-                        boxShadow: '0 3px 8px rgba(79,70,229,0.3)',
-                        cursor: isSubmitting ? 'not-allowed' : 'pointer',
-                        opacity: isSubmitting ? 0.75 : 1,
-                        border: 'none',
-                        transition: 'all 0.2s',
+                        fontSize: '0.72rem',
+                        color: parsedTask.categoryType === 'STUDY' ? '#7C3AED' : parsedTask.categoryType === 'HEALTH' ? '#059669' : parsedTask.categoryType === 'ENTERTAINMENT' ? '#D97706' : '#2563EB',
+                        fontWeight: 700,
+                        letterSpacing: '0.04em',
+                        background: parsedTask.categoryType === 'STUDY' ? '#F5F3FF' : parsedTask.categoryType === 'HEALTH' ? '#ECFDF5' : parsedTask.categoryType === 'ENTERTAINMENT' ? '#FFFBEB' : '#EFF6FF',
+                        padding: '3px 9px',
+                        borderRadius: 12,
                       }}
                     >
-                      {isSubmitting ? (
-                        <>
-                          <Loader2 size={16} className="animate-spin" />
-                          <span>Đang lưu vào lịch...</span>
-                        </>
-                      ) : (
-                        <>
-                          <span>→ Xác nhận & thêm vào lịch</span>
-                        </>
-                      )}
-                    </button>
+                      {getCategoryLabel(parsedTask.categoryType)}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '0.72rem',
+                        fontWeight: 600,
+                        color: getPriorityColor(parsedTask.priority),
+                        background: '#FFFFFF',
+                        padding: '2px 8px',
+                        borderRadius: 12,
+                        border: '1px solid #E2E8F0',
+                      }}
+                    >
+                      {getPriorityLabel(parsedTask.priority)}
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: '1.02rem', fontWeight: 700, color: '#0F172A', marginTop: 2 }}>
+                    {parsedTask.title}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem', color: '#475569' }}>
+                    <CalendarIcon size={14} style={{ color: '#6C5CE7' }} />
+                    <span style={{ fontWeight: 500 }}>{parsedTask.formattedDateLabel}</span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem', color: '#475569' }}>
+                    <Flag size={14} style={{ color: '#64748B' }} />
+                    <span>Thời lượng ước tính: {parsedTask.estimatedDurationMinutes} phút</span>
+                  </div>
+
+                  {parsedTask.note && (
+                    <p style={{ fontSize: '0.76rem', color: '#64748B', lineHeight: 1.45, margin: '2px 0 0 0', fontStyle: 'italic' }}>
+                      💬 {parsedTask.note}
+                    </p>
                   )}
 
-                  {/* Secondary Action: Edit before confirm */}
-                  <button
-                    onClick={() => {
-                      const now = new Date();
-                      const defaultDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-                      const datePart = parsedTask.startTime ? parsedTask.startTime.substring(0, 10) : defaultDateStr;
-                      const startH = parsedTask.startTime ? parsedTask.startTime.substring(11, 16) : '15:00';
-                      const endH = parsedTask.endTime ? parsedTask.endTime.substring(11, 16) : '16:30';
+                  {/* Lưu ý ngoài giờ làm việc & giờ nghỉ (chỉ hiển thị khi thực sự cần) */}
+                  {(() => {
+                    const check = checkWorkHoursConstraint(parsedTask.startTime, parsedTask.endTime, parsedTask.categoryType);
+                    if (!check.isOutsideWorkHours) return null;
+                    return (
+                      <div
+                        style={{
+                          marginTop: 4,
+                          background: '#F8FAFC',
+                          border: '1px solid #E2E8F0',
+                          borderLeft: '3px solid #F59E0B',
+                          borderRadius: 8,
+                          padding: '8px 12px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 3,
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#B45309', fontWeight: 600, fontSize: '0.8rem' }}>
+                          <Clock size={14} />
+                          <span>{check.promptTitle}</span>
+                        </div>
+                        <p style={{ fontSize: '0.75rem', color: '#475569', lineHeight: 1.4, margin: 0 }}>
+                          {check.reason}
+                        </p>
+                      </div>
+                    );
+                  })()}
 
-                      onEditTaskDetails({
-                        id: undefined,
-                        title: parsedTask.title,
-                        date: datePart,
-                        startTime: startH,
-                        endTime: endH,
-                        priority: parsedTask.priority,
-                        categoryType: parsedTask.categoryType,
-                        estimatedDurationMinutes: parsedTask.estimatedDurationMinutes,
-                      });
-                      setParsedTask(null);
-                      setInputText('');
-                    }}
-                    style={{
-                      textAlign: 'center',
-                      color: '#6C5CE7',
-                      fontSize: '0.82rem',
-                      fontWeight: 600,
-                      padding: '6px 0',
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Chỉnh sửa chi tiết trước khi lưu
-                  </button>
+                  {/* Amber Conflict Warning */}
+                  {parsedTask.hasConflict && (
+                    <div
+                      style={{
+                        marginTop: 6,
+                        background: '#FFF7ED',
+                        border: '1px solid #FED7AA',
+                        borderRadius: 8,
+                        padding: '10px 12px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#C2410C', fontWeight: 600, fontSize: '0.82rem' }}>
+                        <AlertTriangle size={15} />
+                        <span>Khung giờ này đang bận</span>
+                      </div>
+                      <p style={{ fontSize: '0.77rem', color: '#9A3412', lineHeight: 1.45, margin: 0 }}>
+                        {parsedTask.conflictMessage}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Hộp xác nhận khi tạo việc ngoài giờ nghỉ */}
+                  {offHoursPendingConfirm && (
+                    <div
+                      style={{
+                        marginTop: 8,
+                        background: '#FFFBEB',
+                        border: '1.5px solid #FCD34D',
+                        borderRadius: 10,
+                        padding: '12px 14px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#B45309', fontWeight: 700, fontSize: '0.85rem' }}>
+                        <Clock size={16} />
+                        <span>{offHoursPendingConfirm.promptMessage}</span>
+                      </div>
+                      <p style={{ fontSize: '0.78rem', color: '#78350F', margin: 0 }}>
+                        {offHoursPendingConfirm.reason}
+                      </p>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                        <button
+                          onClick={() => setOffHoursPendingConfirm(null)}
+                          style={{
+                            flex: 1,
+                            padding: '7px 10px',
+                            background: '#FFFFFF',
+                            border: '1px solid #D1D5DB',
+                            borderRadius: 6,
+                            fontSize: '0.8rem',
+                            fontWeight: 600,
+                            color: '#4B5563',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Hủy bỏ
+                        </button>
+                        <button
+                          onClick={() => handleConfirmSchedule(offHoursPendingConfirm.useAlternative, true)}
+                          style={{
+                            flex: 1,
+                            padding: '7px 10px',
+                            background: '#D97706',
+                            border: 'none',
+                            borderRadius: 6,
+                            fontSize: '0.8rem',
+                            fontWeight: 600,
+                            color: '#FFFFFF',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Tiếp tục lưu lịch
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Action State: Once Confirmed ── */}
+                  {isConfirmed ? (
+                    <div
+                      style={{
+                        marginTop: 8,
+                        padding: '14px',
+                        background: 'linear-gradient(135deg, #ECFDF5, #F0FDF4)',
+                        border: '1.5px solid #A7F3D0',
+                        borderRadius: 12,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 10,
+                        animation: 'cardSpringEnter 0.35s ease-out',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#065F46' }}>
+                        <CheckCircle2 size={18} style={{ color: '#10B981', flexShrink: 0 }} />
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: '0.86rem' }}>Đã lưu an toàn vào lịch!</div>
+                          <div style={{ fontSize: '0.74rem', color: '#047857' }}>Công việc đã hiển thị trên bảng thời gian của bạn.</div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                        <button
+                          onClick={handleFinishTask}
+                          style={{
+                            flex: '1 1 100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            padding: '9px 12px',
+                            background: '#10B981',
+                            border: 'none',
+                            borderRadius: 8,
+                            fontSize: '0.82rem',
+                            fontWeight: 600,
+                            color: '#FFFFFF',
+                            cursor: 'pointer',
+                            boxShadow: '0 2px 5px rgba(16,185,129,0.25)',
+                            transition: 'all 0.15s ease',
+                          }}
+                          title="Xác nhận hoàn tất công việc đã thêm vào lịch trình"
+                        >
+                          <Check size={15} />
+                          <span>Hoàn tất</span>
+                        </button>
+
+                        <button
+                          onClick={handleEditCreatedTask}
+                          style={{
+                            flex: 1,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            padding: '8px 10px',
+                            background: '#FFFFFF',
+                            border: '1px solid #D1D5DB',
+                            borderRadius: 8,
+                            fontSize: '0.78rem',
+                            fontWeight: 600,
+                            color: '#374151',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s',
+                          }}
+                          title="Chỉnh sửa công việc này nếu cần thay đổi (không tạo trùng lặp)"
+                        >
+                          <Edit3 size={13} style={{ color: '#6C5CE7' }} />
+                          <span>Sửa lịch trình</span>
+                        </button>
+
+                        <button
+                          onClick={handleStartNewTask}
+                          style={{
+                            flex: 1,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            padding: '8px 10px',
+                            background: '#F8FAFC',
+                            border: '1px solid #E2E8F0',
+                            borderRadius: 8,
+                            fontSize: '0.78rem',
+                            fontWeight: 600,
+                            color: '#475569',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s',
+                          }}
+                          title="Nhập công việc khác"
+                        >
+                          <PlusCircle size={13} />
+                          <span>Tạo việc khác</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : !offHoursPendingConfirm ? (
+                    /* ── Action State: Not Confirmed Yet ── */
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 6 }}>
+                      {parsedTask.hasConflict ? (
+                        <>
+                          {/* Nút chính ưu tiên: Tự động chuyển sang giờ trống tiếp theo */}
+                          {parsedTask.suggestedAlternativeStartTime && (
+                            <button
+                              onClick={() => handleConfirmSchedule(true)}
+                              disabled={isSubmitting}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 6,
+                                padding: '10px 14px',
+                                background: '#4F46E5',
+                                color: '#FFFFFF',
+                                borderRadius: 8,
+                                fontWeight: 600,
+                                fontSize: '0.86rem',
+                                boxShadow: '0 2px 6px rgba(79,70,229,0.25)',
+                                cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                                opacity: isSubmitting ? 0.75 : 1,
+                                border: 'none',
+                              }}
+                            >
+                              {isSubmitting ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+                              <span>Chuyển sang giờ trống ({parsedTask.suggestedAlternativeStartTime.substring(11, 16)}–{parsedTask.suggestedAlternativeEndTime?.substring(11, 16)})</span>
+                            </button>
+                          )}
+
+                          {/* Nút phụ: Giữ nguyên giờ trùng */}
+                          <button
+                            onClick={() => handleConfirmSchedule(false)}
+                            disabled={isSubmitting}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 6,
+                              padding: '8px 12px',
+                              background: '#FFF7ED',
+                              color: '#C2410C',
+                              border: '1px solid #FED7AA',
+                              borderRadius: 8,
+                              fontWeight: 600,
+                              fontSize: '0.8rem',
+                              cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                            }}
+                          >
+                            <span>Vẫn giữ giờ này ({parsedTask.startTime.substring(11, 16)}–{parsedTask.endTime.substring(11, 16)})</span>
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => handleConfirmSchedule(false)}
+                          disabled={isSubmitting}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 8,
+                            padding: '11px 16px',
+                            background: 'linear-gradient(135deg, #4F46E5, #6C5CE7)',
+                            color: '#FFFFFF',
+                            borderRadius: 10,
+                            fontWeight: 600,
+                            fontSize: '0.88rem',
+                            boxShadow: '0 3px 8px rgba(79,70,229,0.3)',
+                            cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                            opacity: isSubmitting ? 0.75 : 1,
+                            border: 'none',
+                            transition: 'all 0.2s',
+                          }}
+                        >
+                          {isSubmitting ? (
+                            <>
+                              <Loader2 size={16} className="animate-spin" />
+                              <span>Đang lưu vào lịch...</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>→ Xác nhận & thêm vào lịch</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+
+                      {/* Secondary Action: Edit before confirm */}
+                      <button
+                        onClick={() => {
+                          const now = new Date();
+                          const defaultDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                          const datePart = parsedTask.startTime ? parsedTask.startTime.substring(0, 10) : defaultDateStr;
+                          const startH = parsedTask.startTime ? parsedTask.startTime.substring(11, 16) : '15:00';
+                          const endH = parsedTask.endTime ? parsedTask.endTime.substring(11, 16) : '16:30';
+
+                          onEditTaskDetails({
+                            id: undefined,
+                            title: parsedTask.title,
+                            date: datePart,
+                            startTime: startH,
+                            endTime: endH,
+                            priority: parsedTask.priority,
+                            categoryType: parsedTask.categoryType,
+                            estimatedDurationMinutes: parsedTask.estimatedDurationMinutes,
+                          });
+                          setParsedTask(null);
+                          setInputText('');
+                        }}
+                        style={{
+                          textAlign: 'center',
+                          color: '#6C5CE7',
+                          fontSize: '0.82rem',
+                          fontWeight: 600,
+                          padding: '6px 0',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Chỉnh sửa chi tiết trước khi lưu
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
+              )}
             </div>
-          )}
+          )
+        )}
+
+        {/* ── Suggestions Section (Bạn cũng có thể thử) ── */}
+        <div style={{ padding: isCompact ? '12px 14px' : '16px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ fontSize: isCompact ? '0.78rem' : '0.84rem', color: 'var(--text-2)', fontWeight: 700 }}>
+            Bạn cũng có thể thử
+          </div>
+
+          <button
+            className="ai-suggestion-btn"
+            onClick={() => {
+              const prompt = 'Sắp xếp cho tôi 2 tiếng đọc sách vào sáng mai lúc 8h';
+              setInputText(prompt);
+              executeAiParse(prompt);
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: isCompact ? '9px 10px' : '11px 13px',
+              background: 'var(--surface-header, #F8FAFC)',
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+              textAlign: 'left',
+              color: 'var(--text)',
+              fontSize: isCompact ? '0.78rem' : '0.83rem',
+              fontWeight: 600,
+              lineHeight: 1.4,
+              cursor: 'pointer',
+              transition: 'all 0.15s',
+            }}
+          >
+            <BookOpen size={15} style={{ color: '#6C5CE7', flexShrink: 0 }} />
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>Sắp xếp 2 tiếng đọc sách sáng mai 8h</span>
+            <ExternalLink size={13} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+          </button>
+
+          <button
+            className="ai-suggestion-btn"
+            onClick={() => {
+              const prompt = 'Nhắc tôi chạy bộ 45 phút vào 6h sáng thứ 2 tuần sau';
+              setInputText(prompt);
+              executeAiParse(prompt);
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: isCompact ? '9px 10px' : '11px 13px',
+              background: 'var(--surface-header, #F8FAFC)',
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+              textAlign: 'left',
+              color: 'var(--text)',
+              fontSize: isCompact ? '0.78rem' : '0.83rem',
+              fontWeight: 600,
+              lineHeight: 1.4,
+              cursor: 'pointer',
+              transition: 'all 0.15s',
+            }}
+          >
+            <Sparkles size={15} style={{ color: '#10B981', flexShrink: 0 }} />
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>Nhắc chạy bộ 45 phút vào 6h sáng thứ 2</span>
+            <ExternalLink size={13} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+          </button>
+
+          <button
+            className="ai-suggestion-btn"
+            onClick={() => {
+              const prompt = 'Hãy lặp cho tôi một lịch Tiếng Anh 2 vào lúc 1h đến 2h30p khoảng 1tiếng rưỡi chiều ngày hôm sau thứ 7';
+              setInputText(prompt);
+              executeAiParse(prompt);
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: isCompact ? '9px 10px' : '11px 13px',
+              background: 'var(--surface-header, #F8FAFC)',
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+              textAlign: 'left',
+              color: 'var(--text)',
+              fontSize: isCompact ? '0.78rem' : '0.83rem',
+              fontWeight: 600,
+              lineHeight: 1.4,
+              cursor: 'pointer',
+              transition: 'all 0.15s',
+            }}
+          >
+            <BookOpen size={15} style={{ color: '#7C3AED', flexShrink: 0 }} />
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>Lịch Tiếng Anh 1h đến 2h30 chiều</span>
+            <ExternalLink size={13} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+          </button>
         </div>
-        )
-      )}
-
-      {/* ── Suggestions Section (Bạn cũng có thể thử) ── */}
-      <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div style={{ fontSize: '0.82rem', color: '#64748B', fontWeight: 500 }}>
-          Bạn cũng có thể thử
-        </div>
-
-        <button
-          onClick={() => {
-            const prompt = 'Sắp xếp cho tôi 2 tiếng đọc sách vào sáng mai lúc 8h';
-            setInputText(prompt);
-            executeAiParse(prompt);
-          }}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            padding: '12px 14px',
-            background: '#F8FAFC',
-            border: '1px solid #E2E8F0',
-            borderRadius: 10,
-            textAlign: 'left',
-            color: '#334155',
-            fontSize: '0.83rem',
-            lineHeight: 1.4,
-            cursor: 'pointer',
-            transition: 'all 0.15s',
-          }}
-        >
-          <BookOpen size={16} style={{ color: '#6C5CE7', flexShrink: 0 }} />
-          <span style={{ flex: 1 }}>Sắp xếp cho tôi 2 tiếng đọc sách vào sáng mai lúc 8h</span>
-          <ExternalLink size={14} style={{ color: '#94A3B8', flexShrink: 0 }} />
-        </button>
-
-        <button
-          onClick={() => {
-            const prompt = 'Nhắc tôi chạy bộ 45 phút vào 6h sáng thứ 2 tuần sau';
-            setInputText(prompt);
-            executeAiParse(prompt);
-          }}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            padding: '12px 14px',
-            background: '#F8FAFC',
-            border: '1px solid #E2E8F0',
-            borderRadius: 10,
-            textAlign: 'left',
-            color: '#334155',
-            fontSize: '0.83rem',
-            lineHeight: 1.4,
-            cursor: 'pointer',
-            transition: 'all 0.15s',
-          }}
-        >
-          <Sparkles size={16} style={{ color: '#10B981', flexShrink: 0 }} />
-          <span style={{ flex: 1 }}>Nhắc tôi chạy bộ 45 phút vào 6h sáng thứ 2 tuần sau</span>
-          <ExternalLink size={14} style={{ color: '#94A3B8', flexShrink: 0 }} />
-        </button>
-
-        <button
-          onClick={() => {
-            const prompt = 'Hãy lặp cho tôi một lịch Tiếng Anh 2 vào lúc 1h đến 2h30p khoảng 1tiếng rưỡi chiều ngày hôm sau thứ 7';
-            setInputText(prompt);
-            executeAiParse(prompt);
-          }}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            padding: '12px 14px',
-            background: '#F8FAFC',
-            border: '1px solid #E2E8F0',
-            borderRadius: 10,
-            textAlign: 'left',
-            color: '#334155',
-            fontSize: '0.83rem',
-            lineHeight: 1.4,
-            cursor: 'pointer',
-            transition: 'all 0.15s',
-          }}
-        >
-          <BookOpen size={16} style={{ color: '#7C3AED', flexShrink: 0 }} />
-          <span style={{ flex: 1 }}>Lịch Tiếng Anh 1h đến 2h30 chiều (1 tiếng rưỡi)</span>
-          <ExternalLink size={14} style={{ color: '#94A3B8', flexShrink: 0 }} />
-        </button>
       </div>
 
-      {/* ── Footer Disclaimer ── */}
-      <div
-        style={{
-          marginTop: 'auto',
-          padding: '14px 20px',
-          borderTop: '1px solid #F1F5F9',
-          fontSize: '0.72rem',
-          color: '#94A3B8',
-          lineHeight: 1.5,
-        }}
-      >
-        Mọi thay đổi đều cần bạn xác nhận. Nhập giọng nói được hỗ trợ trực tiếp qua Web Speech API tiếng Việt.
-      </div>
+      {/* ── AI Workspace Privacy Permission Modal ── */}
+      <AiPrivacyModal
+        isOpen={showPrivacyModal}
+        onClose={() => setShowPrivacyModal(false)}
+        workspaces={workspaces}
+        activeWorkspace={activeWorkspace || null}
+        onShowToast={onShowToast}
+      />
     </aside>
   );
 }
