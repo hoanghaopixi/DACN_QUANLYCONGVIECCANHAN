@@ -15,7 +15,6 @@ import java.util.Map;
 @Slf4j
 @RestController
 @RequestMapping("/media")
-@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
 public class MediaController {
 

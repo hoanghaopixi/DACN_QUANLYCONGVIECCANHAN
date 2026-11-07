@@ -17,6 +17,8 @@ public class AutoScheduleDto {
     private Long workspaceId;
     private List<Long> taskIds; // optional specific tasks to schedule
     private Boolean applyImmediately; // if true, saves to TimeBlock directly; if false, previews
+    private String breakStartTime; // HH:mm; optional personal break window
+    private String breakEndTime;   // HH:mm; optional personal break window
 
     @Data
     @Builder

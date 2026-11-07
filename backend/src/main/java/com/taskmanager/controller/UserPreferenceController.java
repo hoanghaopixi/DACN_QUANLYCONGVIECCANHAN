@@ -12,7 +12,6 @@ import org.springframework.web.bind.annotation.*;
 @Slf4j
 @RestController
 @RequestMapping("/preferences")
-@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
 public class UserPreferenceController {
 

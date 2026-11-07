@@ -110,6 +110,13 @@ export function validateRegisterForm(
 
   const passRes = validatePassword(password);
   if (!passRes.isValid) return passRes;
+  if (password.length < 8) {
+    return {
+      isValid: false,
+      message: 'Mật khẩu đăng ký phải có tối thiểu 8 ký tự.',
+      field: 'password',
+    };
+  }
 
   if (!confirmPassword) {
     return {

@@ -1,7 +1,7 @@
 package com.taskmanager.client.gemini;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -18,7 +18,7 @@ import java.util.Optional;
 @Component
 public class GeminiApiClient {
 
-    @Value("${gemini.api.key:YOUR_GEMINI_API_KEY_HERE}")
+    @Value("${gemini.api.key:}")
     private String apiKey;
 
     @Value("${gemini.api.model:gemini-3.5-flash-lite}")
@@ -28,9 +28,9 @@ public class GeminiApiClient {
     private String apiUrl;
 
     private final WebClient webClient;
-    private final ObjectMapper objectMapper;
+    private final JsonMapper objectMapper;
 
-    public GeminiApiClient(WebClient.Builder webClientBuilder, ObjectMapper objectMapper) {
+    public GeminiApiClient(WebClient.Builder webClientBuilder, JsonMapper objectMapper) {
         this.webClient = webClientBuilder.build();
         this.objectMapper = objectMapper;
     }
@@ -59,7 +59,7 @@ public class GeminiApiClient {
         }
 
         try {
-            String endpoint = String.format("%s/%s:generateContent?key=%s", apiUrl, model, apiKey.trim());
+            String endpoint = String.format("%s/%s:generateContent", apiUrl, model);
 
             Map<String, Object> requestBody = new HashMap<>();
 
@@ -84,10 +84,11 @@ public class GeminiApiClient {
             generationConfig.put("temperature", 0.2);
             requestBody.put("generationConfig", generationConfig);
 
-            log.info("Đang gọi Gemini 1.5 Flash API (model: {})...", model);
+            log.info("Đang gọi Gemini API (model: {})...", model);
 
             String responseBody = webClient.post()
                     .uri(endpoint)
+                    .header("x-goog-api-key", apiKey.trim())
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(requestBody)
                     .retrieve()
@@ -116,11 +117,11 @@ public class GeminiApiClient {
                 }
             }
 
-            log.warn("Không tìm thấy candidate content hợp lệ từ Gemini response: {}", responseBody);
+            log.warn("Không tìm thấy candidate content hợp lệ từ Gemini response ({} ký tự).", responseBody.length());
             return Optional.empty();
 
         } catch (Exception e) {
-            log.error("Lỗi khi gọi Google Gemini API: {}", e.getMessage());
+            log.error("Lỗi khi gọi Google Gemini API ({}).", e.getClass().getSimpleName());
             return Optional.empty();
         }
     }

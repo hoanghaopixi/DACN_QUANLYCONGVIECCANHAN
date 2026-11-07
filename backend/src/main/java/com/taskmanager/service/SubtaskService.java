@@ -2,7 +2,9 @@ package com.taskmanager.service;
 
 import com.taskmanager.dto.SubtaskDto;
 import com.taskmanager.entity.Subtask;
+import com.taskmanager.exception.ResourceNotFoundException;
 import com.taskmanager.repository.SubtaskRepository;
+import com.taskmanager.repository.TaskRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -17,16 +19,28 @@ import java.util.stream.Collectors;
 public class SubtaskService {
 
     private final SubtaskRepository subtaskRepository;
+    private final TaskRepository taskRepository;
 
     @Transactional(readOnly = true)
-    public List<SubtaskDto> getSubtasks(Long taskId) {
+    public List<SubtaskDto> getSubtasks(Long userId, Long taskId) {
+        requireOwnedTask(userId, taskId);
         return subtaskRepository.findByTaskIdOrderByOrderIndexAsc(taskId).stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
     }
 
     @Transactional
-    public SubtaskDto createSubtask(Long taskId, SubtaskDto dto) {
+    public SubtaskDto createSubtask(Long userId, Long taskId, SubtaskDto dto) {
+        requireOwnedTask(userId, taskId);
+        if (dto.getTitle() == null || dto.getTitle().isBlank() || dto.getTitle().trim().length() > 255) {
+            throw new IllegalArgumentException("Tên công việc con phải có từ 1 đến 255 ký tự.");
+        }
+        if (dto.getDurationMinutes() != null && (dto.getDurationMinutes() < 1 || dto.getDurationMinutes() > 1440)) {
+            throw new IllegalArgumentException("Thời lượng công việc con phải từ 1 đến 1.440 phút.");
+        }
+        if (dto.getOrderIndex() != null && (dto.getOrderIndex() < 0 || dto.getOrderIndex() > 10_000)) {
+            throw new IllegalArgumentException("Thứ tự công việc con không hợp lệ.");
+        }
         List<Subtask> existing = subtaskRepository.findByTaskIdOrderByOrderIndexAsc(taskId);
         int nextOrder = existing.size();
 
@@ -42,11 +56,22 @@ public class SubtaskService {
     }
 
     @Transactional
-    public SubtaskDto updateSubtask(Long subtaskId, SubtaskDto dto) {
+    public SubtaskDto updateSubtask(Long userId, Long subtaskId, SubtaskDto dto) {
         Subtask subtask = subtaskRepository.findById(subtaskId)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy công việc con #" + subtaskId));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy công việc con #" + subtaskId));
+        requireOwnedTask(userId, subtask.getTaskId());
 
-        if (dto.getTitle() != null && !dto.getTitle().trim().isEmpty()) {
+        if (dto.getTitle() != null && (dto.getTitle().isBlank() || dto.getTitle().trim().length() > 255)) {
+            throw new IllegalArgumentException("Tên công việc con phải có từ 1 đến 255 ký tự.");
+        }
+        if (dto.getDurationMinutes() != null && (dto.getDurationMinutes() < 1 || dto.getDurationMinutes() > 1440)) {
+            throw new IllegalArgumentException("Thời lượng công việc con phải từ 1 đến 1.440 phút.");
+        }
+        if (dto.getOrderIndex() != null && (dto.getOrderIndex() < 0 || dto.getOrderIndex() > 10_000)) {
+            throw new IllegalArgumentException("Thứ tự công việc con không hợp lệ.");
+        }
+
+        if (dto.getTitle() != null) {
             subtask.setTitle(dto.getTitle().trim());
         }
         if (dto.getIsCompleted() != null) {
@@ -63,16 +88,26 @@ public class SubtaskService {
     }
 
     @Transactional
-    public SubtaskDto toggleSubtask(Long subtaskId) {
+    public SubtaskDto toggleSubtask(Long userId, Long subtaskId) {
         Subtask subtask = subtaskRepository.findById(subtaskId)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy công việc con #" + subtaskId));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy công việc con #" + subtaskId));
+        requireOwnedTask(userId, subtask.getTaskId());
         subtask.setIsCompleted(!Boolean.TRUE.equals(subtask.getIsCompleted()));
         return mapToDto(subtaskRepository.save(subtask));
     }
 
     @Transactional
-    public void deleteSubtask(Long subtaskId) {
+    public void deleteSubtask(Long userId, Long subtaskId) {
+        Subtask subtask = subtaskRepository.findById(subtaskId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy công việc con #" + subtaskId));
+        requireOwnedTask(userId, subtask.getTaskId());
         subtaskRepository.deleteById(subtaskId);
+    }
+
+    private void requireOwnedTask(Long userId, Long taskId) {
+        if (taskRepository.findByIdAndUserId(taskId, userId).isEmpty()) {
+            throw new ResourceNotFoundException("Không tìm thấy công việc #" + taskId);
+        }
     }
 
     private SubtaskDto mapToDto(Subtask s) {

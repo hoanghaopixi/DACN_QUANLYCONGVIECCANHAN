@@ -13,4 +13,6 @@ public interface HabitLogRepository extends JpaRepository<HabitLog, Long> {
     List<HabitLog> findByUserIdOrderByCheckInDateDesc(Long userId);
     List<HabitLog> findByTaskIdOrderByCheckInDateDesc(Long taskId);
     Optional<HabitLog> findByTaskIdAndCheckInDate(Long taskId, LocalDate checkInDate);
+    List<HabitLog> findByUserIdAndTaskIdOrderByCheckInDateDesc(Long userId, Long taskId);
+    Optional<HabitLog> findByUserIdAndTaskIdAndCheckInDate(Long userId, Long taskId, LocalDate checkInDate);
 }

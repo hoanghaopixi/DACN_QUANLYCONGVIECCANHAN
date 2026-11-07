@@ -29,7 +29,10 @@ public class DatabaseStatsController {
         Map<String, Long> counts = new LinkedHashMap<>();
         for (String table : tables) {
             try {
-                Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM \"" + table + "\"", Long.class);
+                // The table name comes from PostgreSQL metadata, not request input. Quote it as an
+                // identifier and escape embedded quotes before constructing the identifier SQL.
+                String quotedIdentifier = "\"" + table.replace("\"", "\"\"") + "\"";
+                Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + quotedIdentifier, Long.class);
                 counts.put(table, count != null ? count : 0L);
             } catch (Exception e) {
                 counts.put(table, -1L);

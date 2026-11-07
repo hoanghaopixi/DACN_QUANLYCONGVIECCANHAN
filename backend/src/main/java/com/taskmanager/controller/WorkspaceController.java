@@ -19,7 +19,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/workspaces")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class WorkspaceController {
 
     private final WorkspaceRepository workspaceRepository;
@@ -71,9 +70,13 @@ public class WorkspaceController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Workspace> updateWorkspace(@PathVariable Long id, @RequestBody Workspace dto) {
-        Workspace workspace = workspaceRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy không gian làm việc #" + id));
+    public ResponseEntity<Workspace> updateWorkspace(
+            @PathVariable Long id,
+            @RequestBody Workspace dto,
+            HttpServletRequest request) {
+        Long userId = userResolver.resolveUserId(request);
+        Workspace workspace = workspaceRepository.findByIdAndUserId(id, userId)
+                .orElseThrow(() -> new com.taskmanager.exception.ResourceNotFoundException("Không tìm thấy không gian làm việc #" + id));
 
         if (dto.getName() != null && !dto.getName().trim().isEmpty()) {
             workspace.setName(dto.getName().trim());
@@ -94,11 +97,11 @@ public class WorkspaceController {
             ));
         }
 
-        Workspace ws = workspaceRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy không gian làm việc #" + id));
+        Workspace ws = workspaceRepository.findByIdAndUserId(id, userId)
+                .orElseThrow(() -> new com.taskmanager.exception.ResourceNotFoundException("Không tìm thấy không gian làm việc #" + id));
 
         // Ràng buộc kiểm tra xóa:
-        long taskCount = taskRepository.countByWorkspaceId(id);
+        long taskCount = taskRepository.countByUserIdAndWorkspaceId(userId, id);
         if (taskCount > 0) {
             return ResponseEntity.badRequest().body(Map.of(
                 "message", "Không thể xóa không gian làm việc \"" + ws.getName() + "\" vì đang có " + taskCount + " công việc đang thuộc không gian này!",
@@ -107,7 +110,7 @@ public class WorkspaceController {
         }
 
         // Xóa các nhóm rỗng thuộc workspace này
-        categoryRepository.deleteByWorkspaceId(id);
+        categoryRepository.deleteByWorkspaceIdAndUserId(id, userId);
 
         workspaceRepository.delete(ws);
         return ResponseEntity.noContent().build();

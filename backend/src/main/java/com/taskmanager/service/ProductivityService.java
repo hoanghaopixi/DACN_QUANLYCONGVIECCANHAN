@@ -1,7 +1,7 @@
 package com.taskmanager.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 import com.taskmanager.client.gemini.GeminiApiClient;
 import com.taskmanager.dto.ProductivityReportDto;
 import com.taskmanager.entity.Category;
@@ -37,7 +37,7 @@ public class ProductivityService {
     private final CategoryRepository categoryRepository;
     private final TimeBlockRepository timeBlockRepository;
     private final GeminiApiClient geminiApiClient;
-    private final ObjectMapper objectMapper;
+    private final JsonMapper objectMapper;
 
     private static final ZoneId VIETNAM_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
@@ -174,7 +174,7 @@ public class ProductivityService {
                     }
                 }
             } catch (Exception e) {
-                log.warn("Lỗi khi sinh nhận xét AI Coach qua Gemini: {}", e.getMessage());
+                log.warn("Lỗi khi sinh nhận xét AI Coach qua Gemini ({}).", e.getClass().getSimpleName());
             }
         }
 
@@ -193,7 +193,7 @@ public class ProductivityService {
             logEntity.setAiFeedback(aiFeedback);
             productivityLogRepository.save(logEntity);
         } catch (Exception e) {
-            log.warn("Không thể lưu ProductivityLog: {}", e.getMessage());
+            log.warn("Không thể lưu ProductivityLog ({}).", e.getClass().getSimpleName());
         }
 
         // 9. Build past 7-day trend with real historical data

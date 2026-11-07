@@ -3,6 +3,7 @@ package com.taskmanager.service;
 import com.taskmanager.dto.HabitLogDto;
 import com.taskmanager.entity.HabitLog;
 import com.taskmanager.entity.Task;
+import com.taskmanager.exception.ResourceNotFoundException;
 import com.taskmanager.repository.HabitLogRepository;
 import com.taskmanager.repository.TaskRepository;
 import lombok.RequiredArgsConstructor;
@@ -32,16 +33,21 @@ public class HabitLogService {
     }
 
     @Transactional(readOnly = true)
-    public List<HabitLogDto> getTaskHabitLogs(Long taskId) {
-        return habitLogRepository.findByTaskIdOrderByCheckInDateDesc(taskId)
+    public List<HabitLogDto> getTaskHabitLogs(Long userId, Long taskId) {
+        requireOwnedTask(userId, taskId);
+        return habitLogRepository.findByUserIdAndTaskIdOrderByCheckInDateDesc(userId, taskId)
                 .stream().map(this::toDto).collect(Collectors.toList());
     }
 
     @Transactional
     public HabitLogDto checkInHabit(Long userId, HabitLogDto dto) {
+        if (dto.getTaskId() == null) {
+            throw new IllegalArgumentException("Công việc cần check-in không hợp lệ.");
+        }
+        Task task = requireOwnedTask(userId, dto.getTaskId());
         LocalDate checkInDate = dto.getCheckInDate() != null ? dto.getCheckInDate() : LocalDate.now(VIETNAM_ZONE);
 
-        Optional<HabitLog> existing = habitLogRepository.findByTaskIdAndCheckInDate(dto.getTaskId(), checkInDate);
+        Optional<HabitLog> existing = habitLogRepository.findByUserIdAndTaskIdAndCheckInDate(userId, dto.getTaskId(), checkInDate);
         HabitLog logEntry;
 
         if (existing.isPresent()) {
@@ -61,10 +67,8 @@ public class HabitLogService {
         HabitLog saved = habitLogRepository.save(logEntry);
 
         // Update task status and streak
-        taskRepository.findById(dto.getTaskId()).ifPresent(task -> {
-            task.setStatus("COMPLETED".equalsIgnoreCase(saved.getStatus()) ? "COMPLETED" : "TODO");
-            taskRepository.save(task);
-        });
+        task.setStatus("COMPLETED".equalsIgnoreCase(saved.getStatus()) ? "COMPLETED" : "TODO");
+        taskRepository.save(task);
 
         return toDto(saved);
     }
@@ -72,7 +76,8 @@ public class HabitLogService {
     private HabitLogDto toDto(HabitLog h) {
         String taskTitle = null;
         if (h.getTaskId() != null) {
-            taskTitle = taskRepository.findById(h.getTaskId()).map(Task::getTitle).orElse(null);
+            taskTitle = taskRepository.findByIdAndUserId(h.getTaskId(), h.getUserId())
+                    .map(Task::getTitle).orElse(null);
         }
 
         return HabitLogDto.builder()
@@ -85,5 +90,10 @@ public class HabitLogService {
                 .note(h.getNote())
                 .createdAt(h.getCreatedAt())
                 .build();
+    }
+
+    private Task requireOwnedTask(Long userId, Long taskId) {
+        return taskRepository.findByIdAndUserId(taskId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy công việc #" + taskId));
     }
 }

@@ -43,12 +43,16 @@
 }
 
 .date-input-native-picker {
-  position: fixed !important;
-  left: 1px !important;
-  top: 1px !important;
-  width: 1px !important;
-  height: 1px !important;
-  min-height: 1px !important;
+  /* Keep the native calendar anchored to the visible calendar button.
+     A fixed 1px input was detached from the control and opened at the
+     transformed app container's top-left corner. */
+  position: absolute !important;
+  right: 5px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  width: 30px !important;
+  height: 30px !important;
+  min-height: 30px !important;
   padding: 0 !important;
   opacity: 0 !important;
   pointer-events: none !important;

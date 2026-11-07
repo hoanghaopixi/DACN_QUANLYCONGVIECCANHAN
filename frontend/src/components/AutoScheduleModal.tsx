@@ -37,6 +37,30 @@ export default function AutoScheduleModal({
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isApplying, setIsApplying] = useState<boolean>(false);
   const [previewResult, setPreviewResult] = useState<AutoScheduleResponse | null>(null);
+  const [previewContext, setPreviewContext] = useState<{
+    targetDate: string;
+    workspaceId?: number;
+    breakStartTime: string;
+    breakEndTime: string;
+  } | null>(null);
+
+  const getBreakTimeSettings = () => {
+    try {
+      const stored = localStorage.getItem('smarttask_settings_full');
+      const settings = stored ? JSON.parse(stored) as { lunchBreak?: string } : null;
+      const match = settings?.lunchBreak?.match(/^\s*(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*$/);
+      if (match) return { breakStartTime: match[1], breakEndTime: match[2] };
+    } catch {
+      // Use the app's standard lunch window when stored settings are unavailable.
+    }
+    return { breakStartTime: '12:00', breakEndTime: '13:00' };
+  };
+
+  const handleTargetDateChange = (date: string) => {
+    setTargetDate(date);
+    setPreviewResult(null);
+    setPreviewContext(null);
+  };
 
   if (!isOpen) return null;
 
@@ -48,13 +72,16 @@ export default function AutoScheduleModal({
       return;
     }
     setIsLoading(true);
+    setPreviewResult(null);
+    setPreviewContext(null);
     try {
+      const context = { targetDate, workspaceId, ...getBreakTimeSettings() };
       const res = await autoScheduleService.autoSchedule({
-        targetDate,
-        workspaceId,
+        ...context,
         applyImmediately: false,
       });
       setPreviewResult(res);
+      setPreviewContext(context);
       if (res.proposals.length === 0) {
         onShowToast('Không có công việc nào cần xếp lịch hoặc không còn khoảng trống phù hợp!');
       } else {
@@ -69,14 +96,22 @@ export default function AutoScheduleModal({
   };
 
   const handleApplySchedule = async () => {
+    if (!previewResult || !previewContext || previewResult.proposals.length === 0) return;
     setIsApplying(true);
     try {
-      await autoScheduleService.autoSchedule({
-        targetDate,
-        workspaceId,
+      const appliedResult = await autoScheduleService.autoSchedule({
+        ...previewContext,
+        targetDate: previewResult.targetDate,
+        taskIds: previewResult.proposals.map((proposal) => proposal.taskId),
         applyImmediately: true,
       });
-      onShowToast(`🎉 Đã áp dụng ${previewResult?.proposals.length || 0} công việc vào lịch trình thành công!`);
+      if (!appliedResult.applied || !appliedResult.scheduledCount) {
+        setPreviewResult(null);
+        setPreviewContext(null);
+        onShowToast('Lịch đã thay đổi nên kế hoạch cũ không còn áp dụng được. Hãy tạo bản xem trước mới nhé.');
+        return;
+      }
+      onShowToast(`🎉 Đã áp dụng ${appliedResult.scheduledCount || 0} công việc vào lịch trình thành công!`);
       onApplied();
       onClose();
     } catch (err) {
@@ -184,7 +219,7 @@ export default function AutoScheduleModal({
             <div style={{ display: 'flex', gap: 10 }}>
               <button
                 type="button"
-                onClick={() => setTargetDate(getTodayStr())}
+                onClick={() => handleTargetDateChange(getTodayStr())}
                 style={{
                   flex: 1,
                   padding: '10px 14px',
@@ -201,7 +236,7 @@ export default function AutoScheduleModal({
               </button>
               <button
                 type="button"
-                onClick={() => setTargetDate(getTomorrowStr())}
+                onClick={() => handleTargetDateChange(getTomorrowStr())}
                 style={{
                   flex: 1,
                   padding: '10px 14px',
@@ -386,7 +421,7 @@ export default function AutoScheduleModal({
             <button
               type="button"
               onClick={handleApplySchedule}
-              disabled={isApplying}
+              disabled={isApplying || isLoading}
               style={{
                 padding: '9px 24px',
                 borderRadius: 10,
@@ -398,7 +433,7 @@ export default function AutoScheduleModal({
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
-                cursor: isApplying ? 'not-allowed' : 'pointer',
+                cursor: isApplying || isLoading ? 'not-allowed' : 'pointer',
                 boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
               }}
             >

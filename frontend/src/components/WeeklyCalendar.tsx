@@ -443,7 +443,7 @@ export default function WeeklyCalendar({
             endTime: formatOffset(newEnd),
             estimatedDurationMinutes: block.estimatedDurationMinutes,
             colorCode: matchedCategory?.colorCode || block.colorOverride,
-            workspaceId: block.workspaceId || 1,
+            workspaceId: block.workspaceId,
           });
 
           createdCount++;
@@ -513,7 +513,7 @@ export default function WeeklyCalendar({
           endTime: formatOffset(newEnd),
           estimatedDurationMinutes: block.estimatedDurationMinutes,
           colorCode: block.colorOverride,
-          workspaceId: block.workspaceId || 1,
+          workspaceId: block.workspaceId,
         });
 
         createdCount++;
@@ -593,7 +593,7 @@ export default function WeeklyCalendar({
           endTime: formatOffset(newEnd),
           estimatedDurationMinutes: block.estimatedDurationMinutes,
           colorCode: block.colorOverride,
-          workspaceId: block.workspaceId || 1,
+          workspaceId: block.workspaceId,
         });
 
         createdCount++;

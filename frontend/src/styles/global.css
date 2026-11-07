@@ -6598,7 +6598,9 @@ input::-ms-clear {
 .month-popover-task-actions button:last-child { color: #059669; background: rgba(16,185,129,.16); }
 @keyframes monthTaskActionsIn { from { opacity: 0; transform: translateX(5px) scale(.97); } to { opacity: 1; transform: translateX(0) scale(1); } }
 .event-block.is-hovered.month-task-hover-card { position: fixed !important; z-index: 100001 !important; box-sizing: border-box; padding: 8px 10px !important; border-radius: var(--r-md); overflow: visible !important; background: #F8FAFC !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
-[data-theme='dark'] .month-task-hover-card { background: #141B2D !important; }
+[data-theme='dark'] .event-block.is-hovered.month-task-hover-card { background: #202B38 !important; color: #E8EEF4 !important; border-color: #364555 !important; }
+[data-theme='dark'] .month-task-hover-card .event-title { color: #F8FAFC !important; }
+[data-theme='dark'] .month-task-hover-card .event-time { color: #B2C0CE !important; opacity: 1; }
 .month-task-hover-card .event-hover-bottom-bar { gap: 8px !important; }
 .month-task-hover-card .event-hover-bottom-bar > button { margin: 0 1px; }
 .month-task-hover-card::before { content: ''; position: absolute; top: var(--month-arrow-y, 22px); width: 10px; height: 16px; transform: translateY(-50%); background: inherit; filter: drop-shadow(0 0 1px var(--border)); pointer-events: none; }

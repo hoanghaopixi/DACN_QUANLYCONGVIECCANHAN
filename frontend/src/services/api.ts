@@ -7,7 +7,7 @@ const api = axios.create({
   },
 });
 
-// Intercept to add JWT token & User Email if stored
+// Attach only the signed bearer token; the API derives the user identity from it.
 api.interceptors.request.use((config) => {
   const savedUser = localStorage.getItem('smarttask_current_user');
   if (savedUser) {
@@ -16,14 +16,24 @@ api.interceptors.request.use((config) => {
       if (user.token) {
         config.headers.Authorization = `Bearer ${user.token}`;
       }
-      if (user.email) {
-        config.headers['X-User-Email'] = user.email;
-      }
     } catch (e) {
       // ignore
     }
   }
   return config;
 });
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const url = String(error?.config?.url || '');
+    const isCredentialForm = ['/auth/login', '/auth/register', '/auth/verify-password', '/auth/change-password']
+      .some((path) => url.includes(path));
+    if (error?.response?.status === 401 && !isCredentialForm) {
+      window.dispatchEvent(new Event('smarttask:session-expired'));
+    }
+    return Promise.reject(error);
+  }
+);
 
 export default api;

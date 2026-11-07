@@ -5,10 +5,12 @@ import com.taskmanager.entity.Category;
 import com.taskmanager.entity.Subtask;
 import com.taskmanager.entity.Task;
 import com.taskmanager.entity.TimeBlock;
+import com.taskmanager.exception.ResourceNotFoundException;
 import com.taskmanager.repository.CategoryRepository;
 import com.taskmanager.repository.SubtaskRepository;
 import com.taskmanager.repository.TaskRepository;
 import com.taskmanager.repository.TimeBlockRepository;
+import com.taskmanager.repository.WorkspaceRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -27,28 +29,7 @@ public class TaskService {
     private final TimeBlockRepository timeBlockRepository;
     private final CategoryRepository categoryRepository;
     private final SubtaskRepository subtaskRepository;
-
-    @jakarta.annotation.PostConstruct
-    public void migrateWorkspacesForExistingData() {
-        try {
-            List<Task> allTasks = taskRepository.findAll();
-            for (Task t : allTasks) {
-                if (t.getWorkspaceId() == null) {
-                    t.setWorkspaceId(1L);
-                    taskRepository.save(t);
-                }
-            }
-            List<Category> allCats = categoryRepository.findAll();
-            for (Category c : allCats) {
-                if (c.getWorkspaceId() == null) {
-                    c.setWorkspaceId(1L);
-                    categoryRepository.save(c);
-                }
-            }
-        } catch (Exception e) {
-            // ignore if table not ready yet
-        }
-    }
+    private final WorkspaceRepository workspaceRepository;
 
     @Transactional(readOnly = true)
     public List<TaskDto> getTasks(Long userId, Long workspaceId) {
@@ -69,6 +50,21 @@ public class TaskService {
         Map<Long, Category> categoryMap = new HashMap<>();
         for (Category c : categoryRepository.findByUserId(userId)) {
             categoryMap.put(c.getId(), c);
+        }
+
+        Map<Long, List<Subtask>> subtasksByTaskId = new HashMap<>();
+        List<Long> taskIds = tasks.stream().map(Task::getId).filter(Objects::nonNull).toList();
+        if (!taskIds.isEmpty()) {
+            for (Subtask subtask : subtaskRepository.findByTaskIdInOrderByOrderIndexAsc(taskIds)) {
+                subtasksByTaskId.computeIfAbsent(subtask.getTaskId(), ignored -> new ArrayList<>()).add(subtask);
+            }
+        }
+
+        Map<String, Integer> completedCountsByTitle = new HashMap<>();
+        for (Task task : tasks) {
+            if ("COMPLETED".equalsIgnoreCase(task.getStatus()) && task.getTitle() != null) {
+                completedCountsByTitle.merge(task.getTitle().trim().toLowerCase(Locale.ROOT), 1, Integer::sum);
+            }
         }
 
         List<TaskDto> dtos = new ArrayList<>();
@@ -95,12 +91,12 @@ public class TaskService {
                     : t.getDescription();
 
             // Calculate subtasks progress
-            List<Subtask> subtasks = subtaskRepository.findByTaskIdOrderByOrderIndexAsc(t.getId());
+            List<Subtask> subtasks = subtasksByTaskId.getOrDefault(t.getId(), List.of());
             int subtasksCount = subtasks.size();
             int completedSubtasks = (int) subtasks.stream().filter(s -> Boolean.TRUE.equals(s.getIsCompleted())).count();
 
             // Calculate streak count for recurring task
-            int streak = calculateStreak(t, tasks);
+            int streak = calculateStreak(t, completedCountsByTitle);
 
             dtos.add(TaskDto.builder()
                     .id(t.getId())
@@ -137,7 +133,15 @@ public class TaskService {
     public TaskDto createTask(Long userId, TaskDto dto) {
         Long workspaceId = dto.getWorkspaceId();
         if (workspaceId == null) {
-            workspaceId = 1L; // Mặc định workspace 1 (Không gian cá nhân)
+            workspaceId = workspaceRepository.findFirstByUserIdOrderByIdAsc(userId)
+                    .map(com.taskmanager.entity.Workspace::getId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Tài khoản chưa có không gian làm việc."));
+        }
+        if (!workspaceRepository.existsByIdAndUserId(workspaceId, userId)) {
+            throw new ResourceNotFoundException("Không tìm thấy không gian làm việc.");
+        }
+        if (dto.getTitle() == null || dto.getTitle().isBlank() || dto.getTitle().trim().length() > 255) {
+            throw new IllegalArgumentException("Tên công việc không được để trống.");
         }
 
         // Find matching category by type name
@@ -148,11 +152,18 @@ public class TaskService {
             else if ("HEALTH".equalsIgnoreCase(dto.getCategoryType())) catName = "Sức khỏe";
             else if ("ENTERTAINMENT".equalsIgnoreCase(dto.getCategoryType())) catName = "Giải trí";
 
-            for (Category c : categoryRepository.findByUserId(userId)) {
+            for (Category c : categoryRepository.findByUserIdAndWorkspaceId(userId, workspaceId)) {
                 if (c.getName().equalsIgnoreCase(catName)) {
                     categoryId = c.getId();
                     break;
                 }
+            }
+        }
+        if (categoryId != null) {
+            Category category = categoryRepository.findByIdAndUserId(categoryId, userId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm công việc."));
+            if (category.getWorkspaceId() != null && !workspaceId.equals(category.getWorkspaceId())) {
+                throw new IllegalArgumentException("Nhóm công việc không thuộc không gian đã chọn.");
             }
         }
 
@@ -160,8 +171,28 @@ public class TaskService {
                 ? dto.getNote().trim()
                 : dto.getDescription();
 
-        String priority = dto.getPriority() != null ? dto.getPriority() : "MEDIUM";
-        String quadrant = dto.getEisenhowerQuadrant() != null ? dto.getEisenhowerQuadrant() : resolveDefaultQuadrant(priority);
+        String priority = dto.getPriority() != null
+                ? normalizeChoice(dto.getPriority(), Set.of("LOW", "MEDIUM", "HIGH", "URGENT"), "Mức độ ưu tiên")
+                : "MEDIUM";
+        String quadrant = dto.getEisenhowerQuadrant() != null
+                ? normalizeChoice(dto.getEisenhowerQuadrant(), Set.of("DO_FIRST", "SCHEDULE", "DELEGATE", "DONT_DO"), "Phân loại ưu tiên")
+                : resolveDefaultQuadrant(priority);
+        String status = dto.getStatus() != null
+                ? normalizeChoice(dto.getStatus(), Set.of("TODO", "IN_PROGRESS", "COMPLETED", "CANCELLED", "OVERDUE"), "Trạng thái công việc")
+                : "TODO";
+        if (dto.getRecurrenceRule() != null) {
+            dto.setRecurrenceRule(normalizeChoice(dto.getRecurrenceRule(), Set.of("DAILY", "WEEKDAYS", "WEEKLY", "MONTHLY"), "Quy tắc lặp lại"));
+        }
+        if (dto.getCategoryType() != null) {
+            normalizeChoice(dto.getCategoryType(), Set.of("WORK", "STUDY", "HEALTH", "ENTERTAINMENT"), "Nhóm công việc");
+        }
+        if (dto.getEstimatedDurationMinutes() != null
+                && (dto.getEstimatedDurationMinutes() < 1 || dto.getEstimatedDurationMinutes() > 1440)) {
+            throw new IllegalArgumentException("Thời lượng ước tính phải từ 1 đến 1440 phút.");
+        }
+        if (dto.getActualDurationMinutes() != null && dto.getActualDurationMinutes() < 0) {
+            throw new IllegalArgumentException("Thời lượng thực tế không hợp lệ.");
+        }
 
         Task task = Task.builder()
                 .userId(userId)
@@ -171,10 +202,10 @@ public class TaskService {
                 .description(taskNote)
                 .note(taskNote)
                 .priority(priority)
-                .status(dto.getStatus() != null ? dto.getStatus() : "TODO")
-                .eisenhowerQuadrant(quadrant)
+                .status(status)
+                .eisenhowerQuadrant(quadrant.trim().toUpperCase(Locale.ROOT))
                 .isRecurring(Boolean.TRUE.equals(dto.getIsRecurring()))
-                .recurrenceRule(dto.getRecurrenceRule() != null ? dto.getRecurrenceRule() : (Boolean.TRUE.equals(dto.getIsRecurring()) ? "DAILY" : null))
+                .recurrenceRule(dto.getRecurrenceRule() != null ? dto.getRecurrenceRule().trim().toUpperCase(Locale.ROOT) : (Boolean.TRUE.equals(dto.getIsRecurring()) ? "DAILY" : null))
                 .estimatedDurationMinutes(dto.getEstimatedDurationMinutes() != null ? dto.getEstimatedDurationMinutes() : 60)
                 .actualDurationMinutes(dto.getActualDurationMinutes() != null ? dto.getActualDurationMinutes() : 0)
                 .isLocked(Boolean.TRUE.equals(dto.getIsLocked()))
@@ -184,6 +215,9 @@ public class TaskService {
 
         OffsetDateTime start = dto.getStartTime() != null ? dto.getStartTime() : OffsetDateTime.now();
         OffsetDateTime end = dto.getEndTime() != null ? dto.getEndTime() : start.plusHours(1);
+        if (!end.isAfter(start)) {
+            throw new IllegalArgumentException("Giờ kết thúc phải sau giờ bắt đầu.");
+        }
 
         TimeBlock block = TimeBlock.builder()
                 .userId(userId)
@@ -214,6 +248,32 @@ public class TaskService {
     public TaskDto updateTask(Long userId, Long taskId, TaskDto dto) {
         Task task = requireOwnedTask(userId, taskId);
 
+        if (dto.getTitle() != null && (dto.getTitle().isBlank() || dto.getTitle().trim().length() > 255)) {
+            throw new IllegalArgumentException("Tên công việc phải có từ 1 đến 255 ký tự.");
+        }
+        String priority = dto.getPriority() != null
+                ? normalizeChoice(dto.getPriority(), Set.of("LOW", "MEDIUM", "HIGH", "URGENT"), "Mức độ ưu tiên")
+                : null;
+        String quadrant = dto.getEisenhowerQuadrant() != null
+                ? normalizeChoice(dto.getEisenhowerQuadrant(), Set.of("DO_FIRST", "SCHEDULE", "DELEGATE", "DONT_DO"), "Phân loại ưu tiên")
+                : null;
+        String status = dto.getStatus() != null
+                ? normalizeChoice(dto.getStatus(), Set.of("TODO", "IN_PROGRESS", "COMPLETED", "CANCELLED", "OVERDUE"), "Trạng thái công việc")
+                : null;
+        String recurrenceRule = dto.getRecurrenceRule() != null
+                ? normalizeChoice(dto.getRecurrenceRule(), Set.of("DAILY", "WEEKDAYS", "WEEKLY", "MONTHLY"), "Quy tắc lặp lại")
+                : null;
+        if (dto.getCategoryType() != null) {
+            normalizeChoice(dto.getCategoryType(), Set.of("WORK", "STUDY", "HEALTH", "ENTERTAINMENT"), "Nhóm công việc");
+        }
+        if (dto.getEstimatedDurationMinutes() != null
+                && (dto.getEstimatedDurationMinutes() < 1 || dto.getEstimatedDurationMinutes() > 1440)) {
+            throw new IllegalArgumentException("Thời lượng ước tính phải từ 1 đến 1440 phút.");
+        }
+        if (dto.getActualDurationMinutes() != null && dto.getActualDurationMinutes() < 0) {
+            throw new IllegalArgumentException("Thời lượng thực tế không hợp lệ.");
+        }
+
         String oldStatus = task.getStatus();
 
         if (dto.getTitle() != null && !dto.getTitle().trim().isEmpty()) {
@@ -226,27 +286,27 @@ public class TaskService {
             task.setNote(dto.getDescription().trim());
             task.setDescription(dto.getDescription().trim());
         }
-        if (dto.getPriority() != null) {
-            task.setPriority(dto.getPriority());
+        if (priority != null) {
+            task.setPriority(priority);
             // If quadrant not specified, auto-sync when priority changes
-            if (dto.getEisenhowerQuadrant() == null) {
-                task.setEisenhowerQuadrant(resolveDefaultQuadrant(dto.getPriority()));
+            if (quadrant == null) {
+                task.setEisenhowerQuadrant(resolveDefaultQuadrant(priority));
             }
         }
-        if (dto.getEisenhowerQuadrant() != null) {
-            task.setEisenhowerQuadrant(dto.getEisenhowerQuadrant());
+        if (quadrant != null) {
+            task.setEisenhowerQuadrant(quadrant);
         }
-        if (dto.getStatus() != null) {
-            task.setStatus(dto.getStatus());
-            if ("COMPLETED".equalsIgnoreCase(dto.getStatus()) && !"COMPLETED".equalsIgnoreCase(oldStatus)) {
+        if (status != null) {
+            task.setStatus(status);
+            if ("COMPLETED".equals(status) && !"COMPLETED".equalsIgnoreCase(oldStatus)) {
                 task.setCompletedAt(OffsetDateTime.now());
             }
         }
         if (dto.getIsRecurring() != null) {
             task.setIsRecurring(dto.getIsRecurring());
         }
-        if (dto.getRecurrenceRule() != null) {
-            task.setRecurrenceRule(dto.getRecurrenceRule());
+        if (recurrenceRule != null) {
+            task.setRecurrenceRule(recurrenceRule);
         }
         if (dto.getEstimatedDurationMinutes() != null) {
             task.setEstimatedDurationMinutes(dto.getEstimatedDurationMinutes());
@@ -255,6 +315,13 @@ public class TaskService {
             task.setActualDurationMinutes(dto.getActualDurationMinutes());
         }
         if (dto.getCategoryId() != null) {
+            Category category = categoryRepository.findByIdAndUserId(dto.getCategoryId(), userId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm công việc."));
+            Long targetWorkspaceId = dto.getWorkspaceId() != null ? dto.getWorkspaceId() : task.getWorkspaceId();
+            if (category.getWorkspaceId() != null && targetWorkspaceId != null
+                    && !category.getWorkspaceId().equals(targetWorkspaceId)) {
+                throw new IllegalArgumentException("Nhóm công việc không thuộc không gian hiện tại.");
+            }
             task.setCategoryId(dto.getCategoryId());
         } else if (dto.getCategoryType() != null) {
             String catName = "Công việc";
@@ -262,7 +329,11 @@ public class TaskService {
             else if ("HEALTH".equalsIgnoreCase(dto.getCategoryType())) catName = "Sức khỏe";
             else if ("ENTERTAINMENT".equalsIgnoreCase(dto.getCategoryType())) catName = "Giải trí";
 
-            for (Category c : categoryRepository.findByUserId(userId)) {
+            Long targetWorkspaceId = dto.getWorkspaceId() != null ? dto.getWorkspaceId() : task.getWorkspaceId();
+            List<Category> categories = targetWorkspaceId != null
+                    ? categoryRepository.findByUserIdAndWorkspaceId(userId, targetWorkspaceId)
+                    : categoryRepository.findByUserId(userId);
+            for (Category c : categories) {
                 if (c.getName().equalsIgnoreCase(catName)) {
                     task.setCategoryId(c.getId());
                     break;
@@ -270,7 +341,33 @@ public class TaskService {
             }
         }
         if (dto.getWorkspaceId() != null) {
+            if (!workspaceRepository.existsByIdAndUserId(dto.getWorkspaceId(), userId)) {
+                throw new ResourceNotFoundException("Không tìm thấy không gian làm việc.");
+            }
+            if (task.getCategoryId() != null) {
+                Category existingCategory = categoryRepository.findByIdAndUserId(task.getCategoryId(), userId)
+                        .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm công việc."));
+                if (existingCategory.getWorkspaceId() != null
+                        && !existingCategory.getWorkspaceId().equals(dto.getWorkspaceId())) {
+                    throw new IllegalArgumentException("Hãy chọn nhóm thuộc không gian làm việc mới.");
+                }
+            }
             task.setWorkspaceId(dto.getWorkspaceId());
+        }
+        List<TimeBlock> userBlocks = timeBlockRepository.findByUserId(userId);
+        TimeBlock existingTaskBlock = userBlocks.stream()
+                .filter(block -> taskId.equals(block.getTaskId())).findFirst().orElse(null);
+        OffsetDateTime resultingStart = dto.getStartTime();
+        OffsetDateTime resultingEnd = dto.getEndTime();
+        if (existingTaskBlock != null) {
+            resultingStart = resultingStart != null ? resultingStart : existingTaskBlock.getStartTime();
+            resultingEnd = resultingEnd != null ? resultingEnd : existingTaskBlock.getEndTime();
+        } else if (resultingStart != null || resultingEnd != null) {
+            resultingStart = resultingStart != null ? resultingStart : OffsetDateTime.now();
+            resultingEnd = resultingEnd != null ? resultingEnd : resultingStart.plusHours(1);
+        }
+        if (resultingStart != null && resultingEnd != null && !resultingEnd.isAfter(resultingStart)) {
+            throw new IllegalArgumentException("Giờ kết thúc phải sau giờ bắt đầu.");
         }
         if (dto.getIsLocked() != null) {
             task.setIsLocked(dto.getIsLocked());
@@ -279,7 +376,6 @@ public class TaskService {
 
         // Update corresponding TimeBlock if time or title changed
         boolean foundBlock = false;
-        List<TimeBlock> userBlocks = timeBlockRepository.findByUserId(userId);
         OffsetDateTime currentBlockStart = null;
         OffsetDateTime currentBlockEnd = null;
 
@@ -329,7 +425,7 @@ public class TaskService {
 
         // Feature 6: Recurring Task Handling
         // If the task was just completed and is recurring, spawn the next recurrence instance!
-        if ("COMPLETED".equalsIgnoreCase(dto.getStatus()) && !"COMPLETED".equalsIgnoreCase(oldStatus)
+        if ("COMPLETED".equals(status) && !"COMPLETED".equalsIgnoreCase(oldStatus)
                 && Boolean.TRUE.equals(updatedTask.getIsRecurring())) {
             spawnNextRecurrence(userId, updatedTask, currentBlockStart, currentBlockEnd);
         }
@@ -419,7 +515,7 @@ public class TaskService {
                     .build();
             timeBlockRepository.save(nextBlock);
 
-            log.info("Đã tự động tạo lần lặp kế tiếp cho công việc '{}' vào {}", savedNext.getTitle(), nextStart);
+            log.info("Đã tự động tạo lần lặp kế tiếp cho công việc #{} vào {}", savedNext.getId(), nextStart);
         } catch (Exception e) {
             log.error("Lỗi khi tạo lần lặp kế tiếp: {}", e.getMessage());
         }
@@ -428,15 +524,10 @@ public class TaskService {
     /**
      * Tính chuỗi ngày liên tiếp (Streak) của thói quen
      */
-    private int calculateStreak(Task task, List<Task> allUserTasks) {
+    private int calculateStreak(Task task, Map<String, Integer> completedCountsByTitle) {
         if (!Boolean.TRUE.equals(task.getIsRecurring())) return 0;
-        String title = task.getTitle().trim().toLowerCase();
-        int completedCount = 0;
-        for (Task t : allUserTasks) {
-            if (t.getTitle().trim().equalsIgnoreCase(title) && "COMPLETED".equalsIgnoreCase(t.getStatus())) {
-                completedCount++;
-            }
-        }
+        String title = task.getTitle().trim().toLowerCase(Locale.ROOT);
+        int completedCount = completedCountsByTitle.getOrDefault(title, 0);
         return Math.max(completedCount, 1);
     }
 
@@ -448,6 +539,14 @@ public class TaskService {
         if ("HIGH".equalsIgnoreCase(priority)) return "SCHEDULE";
         if ("LOW".equalsIgnoreCase(priority)) return "DELEGATE";
         return "SCHEDULE"; // MEDIUM
+    }
+
+    private String normalizeChoice(String value, Set<String> allowed, String fieldName) {
+        String normalized = value != null ? value.trim().toUpperCase(Locale.ROOT) : "";
+        if (!allowed.contains(normalized)) {
+            throw new IllegalArgumentException(fieldName + " không hợp lệ.");
+        }
+        return normalized;
     }
 
     @Transactional

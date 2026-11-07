@@ -7,6 +7,8 @@ export const autoScheduleService = {
     workspaceId?: number;
     taskIds?: number[];
     applyImmediately?: boolean;
+    breakStartTime?: string;
+    breakEndTime?: string;
   }): Promise<AutoScheduleResponse> {
     const response = await api.post<AutoScheduleResponse>(
       '/ai/auto-schedule',

@@ -8,6 +8,9 @@ import java.util.List;
 
 @Repository
 public interface WorkspaceRepository extends JpaRepository<Workspace, Long> {
+    java.util.Optional<Workspace> findByIdAndUserId(Long id, Long userId);
+    java.util.Optional<Workspace> findFirstByUserIdOrderByIdAsc(Long userId);
+    boolean existsByIdAndUserId(Long id, Long userId);
     List<Workspace> findByUserIdOrderByIdAsc(Long userId);
     boolean existsByUserIdAndName(Long userId, String name);
     long countByUserId(Long userId);

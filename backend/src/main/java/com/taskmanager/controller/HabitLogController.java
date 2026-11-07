@@ -14,7 +14,6 @@ import java.util.List;
 @Slf4j
 @RestController
 @RequestMapping("/habits")
-@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
 public class HabitLogController {
 
@@ -28,8 +27,8 @@ public class HabitLogController {
     }
 
     @GetMapping("/tasks/{taskId}")
-    public ResponseEntity<List<HabitLogDto>> getTaskHabitLogs(@PathVariable Long taskId) {
-        return ResponseEntity.ok(habitLogService.getTaskHabitLogs(taskId));
+    public ResponseEntity<List<HabitLogDto>> getTaskHabitLogs(@PathVariable Long taskId, HttpServletRequest request) {
+        return ResponseEntity.ok(habitLogService.getTaskHabitLogs(userResolver.resolveUserId(request), taskId));
     }
 
     @PostMapping("/check-in")

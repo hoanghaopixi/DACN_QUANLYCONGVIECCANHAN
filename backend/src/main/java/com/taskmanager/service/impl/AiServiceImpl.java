@@ -1,7 +1,7 @@
 package com.taskmanager.service.impl;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 import com.taskmanager.client.gemini.GeminiApiClient;
 import com.taskmanager.dto.AutoScheduleDto;
 import com.taskmanager.dto.SubtaskDto;
@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.*;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -32,21 +33,24 @@ public class AiServiceImpl implements AiService {
     private final GeminiApiClient geminiApiClient;
     private final TimeBlockRepository timeBlockRepository;
     private final TaskRepository taskRepository;
+    private final CategoryRepository categoryRepository;
     private final SubtaskRepository subtaskRepository;
     private final UserPreferenceRepository userPreferenceRepository;
     private final AiSchedulingLogRepository aiSchedulingLogRepository;
-    private final ObjectMapper objectMapper;
+    private final JsonMapper objectMapper;
 
     public AiServiceImpl(GeminiApiClient geminiApiClient,
                          TimeBlockRepository timeBlockRepository,
                          TaskRepository taskRepository,
+                         CategoryRepository categoryRepository,
                          SubtaskRepository subtaskRepository,
                          UserPreferenceRepository userPreferenceRepository,
                          AiSchedulingLogRepository aiSchedulingLogRepository,
-                         ObjectMapper objectMapper) {
+                         JsonMapper objectMapper) {
         this.geminiApiClient = geminiApiClient;
         this.timeBlockRepository = timeBlockRepository;
         this.taskRepository = taskRepository;
+        this.categoryRepository = categoryRepository;
         this.subtaskRepository = subtaskRepository;
         this.userPreferenceRepository = userPreferenceRepository;
         this.aiSchedulingLogRepository = aiSchedulingLogRepository;
@@ -55,6 +59,11 @@ public class AiServiceImpl implements AiService {
 
     private static final ZoneId VIETNAM_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final DateTimeFormatter ISO_FORMATTER = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
+    private static final int MAX_AI_TASKS = 50;
+    private static final int MAX_AI_SUBTASKS = 20;
+
+    private record ScheduleSlot(OffsetDateTime start, OffsetDateTime end) {}
+    private record SlotChoice(int slotIndex, OffsetDateTime start) {}
 
     // 1. Nhận diện từ ngữ thô tục / nói bậy / chửi bậy / xúc phạm
     private static final Pattern PROFANITY_PATTERN = Pattern.compile(
@@ -126,12 +135,18 @@ public class AiServiceImpl implements AiService {
     @Override
     public AiParseTaskResponse parseTaskFromNaturalLanguage(AiParseTaskRequest request) {
         String prompt = request.getPrompt() != null ? request.getPrompt().trim() : "";
-        Long userId = request.getUserId() != null ? request.getUserId() : 1L;
+        Long userId = request.getUserId();
+        if (userId == null) {
+            throw new IllegalArgumentException("Yêu cầu cần phiên đăng nhập hợp lệ.");
+        }
+        if (prompt.length() > 4000) {
+            throw new IllegalArgumentException("Nội dung yêu cầu AI không được vượt quá 4.000 ký tự.");
+        }
 
         // 0. Kiểm tra tính hợp lệ trước (Chặn nói bậy, nói chơi, câu chào, chuỗi vô nghĩa)
         AiParseTaskResponse preCheck = validatePromptContent(prompt);
         if (preCheck != null) {
-            log.info("Prompt '{}' bị chặn: type={}, msg={}", prompt, preCheck.getValidationType(), preCheck.getValidationMessage());
+            log.info("Yêu cầu AI bị chặn: type={}", preCheck.getValidationType());
             return preCheck;
         }
 
@@ -147,7 +162,7 @@ public class AiServiceImpl implements AiService {
 
         // 3. Fallback Heuristic Parser nếu Gemini chưa cấu hình hoặc gọi API thất bại
         if (response == null) {
-            log.info("Sử dụng Heuristic Fallback Parser cho prompt: '{}'", prompt);
+            log.info("Sử dụng Heuristic Fallback Parser cho yêu cầu AI.");
             response = fallbackHeuristicParse(prompt, refDateTime);
         }
 
@@ -284,18 +299,23 @@ public class AiServiceImpl implements AiService {
                 List<AiParseTaskResponse> taskList = new ArrayList<>();
                 JsonNode tasksNode = node.path("tasks");
                 if (tasksNode.isArray() && !tasksNode.isEmpty()) {
-                    for (JsonNode tNode : tasksNode) {
+                    int taskLimit = Math.min(tasksNode.size(), MAX_AI_TASKS);
+                    for (int taskIndex = 0; taskIndex < taskLimit; taskIndex++) {
+                        JsonNode tNode = tasksNode.get(taskIndex);
                         String tTitle = cleanTitle(tNode.path("title").asText(""));
-                        if (tTitle.length() < 2 || "Việc".equalsIgnoreCase(tTitle) || "Công việc mới".equalsIgnoreCase(tTitle)
+                        if (tTitle.length() < 2 || tTitle.length() > 255 || "Việc".equalsIgnoreCase(tTitle) || "Công việc mới".equalsIgnoreCase(tTitle)
                                 || "Alo".equalsIgnoreCase(tTitle) || "Alo alo".equalsIgnoreCase(tTitle)) {
                             continue;
                         }
-                        String catType = tNode.path("categoryType").asText("WORK");
+                        String catType = normalizeAiCategory(tNode.path("categoryType").asText("WORK"));
                         String startStr = tNode.path("startTime").asText();
                         int duration = tNode.path("estimatedDurationMinutes").asInt(60);
-                        String priority = tNode.path("priority").asText("MEDIUM");
+                        if (duration < 1 || duration > 1440) {
+                            continue;
+                        }
+                        String priority = normalizeAiPriority(tNode.path("priority").asText("MEDIUM"));
                         boolean isFixed = tNode.path("isFixedTime").asBoolean(true);
-                        String note = tNode.path("note").asText("Được phân tích tự động bởi Gemini AI");
+                        String note = limitText(tNode.path("note").asText("Được phân tích tự động bởi Gemini AI"), 1000);
 
                         OffsetDateTime startTime = parseIsoDateTimeOrFallback(startStr,
                                 refDateTime.plusDays(1).withHour(9).withMinute(0));
@@ -317,14 +337,17 @@ public class AiServiceImpl implements AiService {
                     }
                 } else if (node.has("title")) {
                     String tTitle = cleanTitle(node.path("title").asText(""));
-                    if (tTitle.length() >= 2 && !"Việc".equalsIgnoreCase(tTitle) && !"Công việc mới".equalsIgnoreCase(tTitle)
+                    if (tTitle.length() >= 2 && tTitle.length() <= 255 && !"Việc".equalsIgnoreCase(tTitle) && !"Công việc mới".equalsIgnoreCase(tTitle)
                             && !"Alo".equalsIgnoreCase(tTitle)) {
-                        String catType = node.path("categoryType").asText("WORK");
+                        String catType = normalizeAiCategory(node.path("categoryType").asText("WORK"));
                         String startStr = node.path("startTime").asText();
                         int duration = node.path("estimatedDurationMinutes").asInt(60);
-                        String priority = node.path("priority").asText("MEDIUM");
+                        if (duration < 1 || duration > 1440) {
+                            return null;
+                        }
+                        String priority = normalizeAiPriority(node.path("priority").asText("MEDIUM"));
                         boolean isFixed = node.path("isFixedTime").asBoolean(true);
-                        String note = node.path("note").asText("Được phân tích tự động bởi Gemini AI");
+                        String note = limitText(node.path("note").asText("Được phân tích tự động bởi Gemini AI"), 1000);
 
                         OffsetDateTime startTime = parseIsoDateTimeOrFallback(startStr,
                                 refDateTime.plusDays(1).withHour(9).withMinute(0));
@@ -371,7 +394,7 @@ public class AiServiceImpl implements AiService {
                         .build();
             }
         } catch (Exception e) {
-            log.warn("Gemini parse failed: {}. Sẽ chuyển sang Heuristic.", e.getMessage());
+            log.warn("Gemini parse failed ({}). Sẽ chuyển sang Heuristic.", e.getClass().getSimpleName());
         }
         return null;
     }
@@ -827,6 +850,24 @@ public class AiServiceImpl implements AiService {
         return clean;
     }
 
+    private String normalizeAiCategory(String value) {
+        String normalized = value != null ? value.trim().toUpperCase(Locale.ROOT) : "";
+        return Set.of("WORK", "STUDY", "HEALTH", "ENTERTAINMENT").contains(normalized) ? normalized : "WORK";
+    }
+
+    private String normalizeAiPriority(String value) {
+        String normalized = value != null ? value.trim().toUpperCase(Locale.ROOT) : "";
+        return Set.of("LOW", "MEDIUM", "HIGH", "URGENT").contains(normalized) ? normalized : "MEDIUM";
+    }
+
+    private String limitText(String value, int maxLength) {
+        if (value == null) {
+            return "";
+        }
+        String trimmed = value.trim();
+        return trimmed.length() <= maxLength ? trimmed : trimmed.substring(0, maxLength);
+    }
+
     /**
      * Kiểm tra xung đột với các TimeBlock đã có trong DB và đề xuất giờ trống tiếp theo
      */
@@ -1061,7 +1102,8 @@ public class AiServiceImpl implements AiService {
     public List<SubtaskDto> breakdownTask(Long userId, Long taskId) {
         long startTime = System.currentTimeMillis();
         Task task = taskRepository.findById(taskId)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy công việc #" + taskId));
+                .filter(item -> Objects.equals(item.getUserId(), userId))
+                .orElseThrow(() -> new com.taskmanager.exception.ResourceNotFoundException("Không tìm thấy công việc #" + taskId));
 
         String prompt = String.format("Công việc: '%s'. Mô tả: '%s'. Thời lượng dự kiến: %d phút.",
                 task.getTitle(), task.getDescription() != null ? task.getDescription() : "",
@@ -1095,10 +1137,12 @@ public class AiServiceImpl implements AiService {
                     JsonNode array = root.path("subtasks");
                     if (array.isArray() && !array.isEmpty()) {
                         int order = 0;
-                        for (JsonNode n : array) {
+                        int subtaskLimit = Math.min(array.size(), MAX_AI_SUBTASKS);
+                        for (int subtaskIndex = 0; subtaskIndex < subtaskLimit; subtaskIndex++) {
+                            JsonNode n = array.get(subtaskIndex);
                             String stTitle = n.path("title").asText("").trim();
                             int dur = n.path("durationMinutes").asInt(15);
-                            if (!stTitle.isEmpty()) {
+                            if (!stTitle.isEmpty() && stTitle.length() <= 255 && dur >= 1 && dur <= 1440) {
                                 Subtask subtask = Subtask.builder()
                                         .taskId(taskId)
                                         .title(stTitle)
@@ -1120,14 +1164,14 @@ public class AiServiceImpl implements AiService {
                         }
                     }
                 } catch (Exception e) {
-                    log.warn("Lỗi phân tích JSON subtasks từ Gemini: {}", e.getMessage());
+                    log.warn("Lỗi phân tích JSON subtasks từ Gemini ({}).", e.getClass().getSimpleName());
                 }
             }
         }
 
         // Heuristic fallback if Gemini is offline or didn't return valid subtasks
         if (result.isEmpty()) {
-            log.info("Sử dụng Heuristic Subtask Breakdown cho task '{}'", task.getTitle());
+            log.info("Sử dụng Heuristic Subtask Breakdown cho task #{}", task.getId());
             List<String> defaultTitles;
             String lower = task.getTitle().toLowerCase();
             if (lower.contains("ôn") || lower.contains("thi") || lower.contains("học") || lower.contains("bài")) {
@@ -1177,13 +1221,11 @@ public class AiServiceImpl implements AiService {
 
         // Log to nhatkyai
         try {
-            String safeAiResponse = (rawResponse != null && rawResponse.trim().startsWith("{") && rawResponse.trim().endsWith("}"))
-                    ? rawResponse.trim() : "{\"status\": \"completed\"}";
             AiSchedulingLog aiLog = AiSchedulingLog.builder()
                     .userId(userId)
                     .actionType("TASK_BREAKDOWN")
-                    .promptInput(prompt)
-                    .aiResponse(safeAiResponse)
+                    .promptInput("TASK_BREAKDOWN #" + taskId)
+                    .aiResponse("{\"status\":\"completed\"}")
                     .status("SUCCESS")
                     .executionTimeMs(System.currentTimeMillis() - startTime)
                     .build();
@@ -1196,6 +1238,9 @@ public class AiServiceImpl implements AiService {
     @Override
     @Transactional
     public List<SubtaskDto> breakdownTaskByPrompt(Long userId, com.taskmanager.dto.request.AiBreakdownRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("Dữ liệu phân rã công việc không hợp lệ.");
+        }
         if (request.getTaskId() != null && request.getTaskId() > 0) {
             return breakdownTask(userId, request.getTaskId());
         }
@@ -1203,8 +1248,14 @@ public class AiServiceImpl implements AiService {
         long startTime = System.currentTimeMillis();
         String title = request.getTitle() != null ? request.getTitle().trim() : "Công việc mới";
         String description = request.getDescription() != null ? request.getDescription().trim() : "";
-        int estimatedDuration = request.getDurationMinutes() != null && request.getDurationMinutes() > 0
-                ? request.getDurationMinutes() : 60;
+        if (title.length() > 255 || description.length() > 4000) {
+            throw new IllegalArgumentException("Tiêu đề tối đa 255 ký tự, mô tả tối đa 4.000 ký tự.");
+        }
+        if (request.getDurationMinutes() != null
+                && (request.getDurationMinutes() < 1 || request.getDurationMinutes() > 1440)) {
+            throw new IllegalArgumentException("Thời lượng ước tính phải từ 1 đến 1.440 phút.");
+        }
+        int estimatedDuration = request.getDurationMinutes() != null ? request.getDurationMinutes() : 60;
 
         String prompt = String.format("Công việc: '%s'. Mô tả: '%s'. Thời lượng dự kiến: %d phút.",
                 title, description, estimatedDuration);
@@ -1238,10 +1289,12 @@ public class AiServiceImpl implements AiService {
                     if (array.isArray() && !array.isEmpty()) {
                         int order = 0;
                         long fakeId = -System.currentTimeMillis();
-                        for (JsonNode n : array) {
+                        int subtaskLimit = Math.min(array.size(), MAX_AI_SUBTASKS);
+                        for (int subtaskIndex = 0; subtaskIndex < subtaskLimit; subtaskIndex++) {
+                            JsonNode n = array.get(subtaskIndex);
                             String stTitle = n.path("title").asText("").trim();
                             int dur = n.path("durationMinutes").asInt(15);
-                            if (!stTitle.isEmpty()) {
+                            if (!stTitle.isEmpty() && stTitle.length() <= 255 && dur >= 1 && dur <= 1440) {
                                 result.add(SubtaskDto.builder()
                                         .id(fakeId--)
                                         .taskId(0L)
@@ -1255,7 +1308,7 @@ public class AiServiceImpl implements AiService {
                         }
                     }
                 } catch (Exception e) {
-                    log.warn("Lỗi phân tích JSON subtasks từ Gemini cho preview: {}", e.getMessage());
+                    log.warn("Lỗi phân tích JSON subtasks từ Gemini cho preview ({}).", e.getClass().getSimpleName());
                 }
             }
         }
@@ -1280,8 +1333,8 @@ public class AiServiceImpl implements AiService {
                 );
             } else {
                 defaultTitles = List.of(
-                        "Chuẩn bị tài liệu & công cụ cho: " + title,
-                        "Thực hiện các bước trọng tâm của việc: " + title,
+                        limitText("Chuẩn bị tài liệu & công cụ cho: " + title, 255),
+                        limitText("Thực hiện các bước trọng tâm của việc: " + title, 255),
                         "Kiểm tra chất lượng và hoàn thiện kết quả"
                 );
             }
@@ -1303,13 +1356,11 @@ public class AiServiceImpl implements AiService {
 
         // Log to nhatkyai
         try {
-            String safeAiResponse = (rawResponse != null && rawResponse.trim().startsWith("{") && rawResponse.trim().endsWith("}"))
-                    ? rawResponse.trim() : "{\"status\": \"completed\"}";
             AiSchedulingLog aiLog = AiSchedulingLog.builder()
                     .userId(userId)
                     .actionType("TASK_BREAKDOWN_PREVIEW")
-                    .promptInput(prompt)
-                    .aiResponse(safeAiResponse)
+                    .promptInput("TASK_BREAKDOWN_PROMPT")
+                    .aiResponse("{\"status\":\"completed\"}")
                     .status("SUCCESS")
                     .executionTimeMs(System.currentTimeMillis() - startTime)
                     .build();
@@ -1323,115 +1374,210 @@ public class AiServiceImpl implements AiService {
     @Transactional
     public AutoScheduleDto.Response autoSchedule(Long userId, AutoScheduleDto request) {
         long startTime = System.currentTimeMillis();
+        if (userId == null) {
+            throw new IllegalArgumentException("Yêu cầu cần phiên đăng nhập hợp lệ.");
+        }
+        if (request == null) {
+            request = new AutoScheduleDto();
+        }
+        if (request.getTaskIds() != null && request.getTaskIds().size() > 500) {
+            throw new IllegalArgumentException("Chỉ có thể xếp lịch tối đa 500 công việc mỗi lần.");
+        }
+
+        // null means "all eligible tasks"; an explicitly empty list means "schedule none".
+        boolean restrictToTaskIds = request.getTaskIds() != null;
+        List<Long> requestedTaskIds = request.getTaskIds() == null ? List.of() : request.getTaskIds().stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        UserPreference pref = userPreferenceRepository.findByUserId(userId).orElse(null);
+        ZoneId scheduleZone = resolveScheduleZone(pref);
+        LocalDate today = LocalDate.now(scheduleZone);
         LocalDate targetDate;
         if (request.getTargetDate() != null && !request.getTargetDate().isBlank()) {
             try {
                 targetDate = LocalDate.parse(request.getTargetDate().trim());
             } catch (Exception e) {
-                targetDate = LocalDate.now(VIETNAM_ZONE);
+                throw new IllegalArgumentException("Ngày cần xếp lịch không hợp lệ.");
             }
         } else {
-            targetDate = LocalDate.now(VIETNAM_ZONE);
+            targetDate = today;
+        }
+        if (targetDate.isBefore(today)) {
+            throw new IllegalArgumentException("Không thể tự động xếp lịch vào ngày đã qua.");
         }
 
-        // Read user preference for work hours
-        UserPreference pref = userPreferenceRepository.findByUserId(userId).orElse(null);
         LocalTime workStart = (pref != null && pref.getWorkStartTime() != null) ? pref.getWorkStartTime() : LocalTime.of(8, 0);
         LocalTime workEnd = (pref != null && pref.getWorkEndTime() != null) ? pref.getWorkEndTime() : LocalTime.of(18, 0);
         int bufferMinutes = (pref != null && pref.getBufferMinutes() != null) ? pref.getBufferMinutes() : 15;
+        if (!workEnd.isAfter(workStart) || bufferMinutes < 0 || bufferMinutes > 240) {
+            throw new IllegalStateException("Khung giờ làm việc hoặc thời gian nghỉ giữa phiên chưa hợp lệ.");
+        }
 
-        OffsetDateTime dayStart = targetDate.atTime(workStart).atZone(VIETNAM_ZONE).toOffsetDateTime();
-        OffsetDateTime dayEnd = targetDate.atTime(workEnd).atZone(VIETNAM_ZONE).toOffsetDateTime();
+        OffsetDateTime dayStart = targetDate.atTime(workStart).atZone(scheduleZone).toOffsetDateTime();
+        OffsetDateTime dayEnd = targetDate.atTime(workEnd).atZone(scheduleZone).toOffsetDateTime();
+        if (!dayEnd.isAfter(dayStart)) {
+            throw new IllegalStateException("Khung giờ làm việc trong ngày không hợp lệ.");
+        }
 
-        // Get existing time blocks on target date
-        List<TimeBlock> existingBlocks = new ArrayList<>(timeBlockRepository.findByUserIdAndStartTimeBetween(userId, dayStart, dayEnd));
-        existingBlocks.sort(Comparator.comparing(TimeBlock::getStartTime));
+        OffsetDateTime scheduleNow = OffsetDateTime.now(scheduleZone);
+        OffsetDateTime nextWholeMinute = scheduleNow.truncatedTo(ChronoUnit.MINUTES);
+        if (scheduleNow.getSecond() != 0 || scheduleNow.getNano() != 0) {
+            nextWholeMinute = nextWholeMinute.plusMinutes(1);
+        }
+        if (targetDate.equals(today) && nextWholeMinute.isAfter(dayStart)) {
+            dayStart = nextWholeMinute.isBefore(dayEnd) ? nextWholeMinute : dayEnd;
+        }
+
+        ScheduleSlot breakWindow = resolveBreakWindow(request, targetDate, scheduleZone, dayStart, dayEnd);
+        Set<DayOfWeek> workDays = parseWorkingDays(pref != null ? pref.getWorkDays() : null);
+        boolean isWorkDay = workDays.contains(targetDate.getDayOfWeek());
+
+        // Query only time blocks intersecting this day; fetch task IDs separately to prevent
+        // duplicate schedules across dates without loading the user's full calendar into memory.
+        OffsetDateTime calendarDayStart = targetDate.atStartOfDay(scheduleZone).toOffsetDateTime();
+        OffsetDateTime calendarDayEnd = targetDate.plusDays(1).atStartOfDay(scheduleZone).toOffsetDateTime();
+        List<TimeBlock> existingBlocks = timeBlockRepository
+                .findByUserIdAndStartTimeBeforeAndEndTimeAfter(userId,
+                        calendarDayEnd.plusMinutes(bufferMinutes), calendarDayStart.minusMinutes(bufferMinutes))
+                .stream()
+                .filter(this::isActiveTimeBlock)
+                .sorted(Comparator.comparing(TimeBlock::getStartTime))
+                .toList();
+        Set<Long> alreadyScheduledTaskIds = new HashSet<>(timeBlockRepository.findScheduledTaskIdsByUserId(userId));
 
         // Get candidate tasks
         List<Task> candidateTasks;
-        if (request.getTaskIds() != null && !request.getTaskIds().isEmpty()) {
-            candidateTasks = taskRepository.findAllById(request.getTaskIds());
+        if (restrictToTaskIds && requestedTaskIds.isEmpty()) {
+            candidateTasks = List.of();
+        } else if (restrictToTaskIds) {
+            candidateTasks = taskRepository.findByIdInAndUserId(requestedTaskIds, userId);
         } else if (request.getWorkspaceId() != null) {
             candidateTasks = taskRepository.findByUserIdAndWorkspaceId(userId, request.getWorkspaceId());
         } else {
             candidateTasks = taskRepository.findByUserId(userId);
         }
+        if (restrictToTaskIds && request.getWorkspaceId() != null) {
+            Long requestedWorkspaceId = request.getWorkspaceId();
+            candidateTasks = candidateTasks.stream()
+                    .filter(task -> Objects.equals(task.getWorkspaceId(), requestedWorkspaceId))
+                    .toList();
+        }
 
-        // Filter only TODO or IN_PROGRESS
+        Map<Long, String> categoryTypesById = new HashMap<>();
+        categoryRepository.findByUserId(userId).forEach(category ->
+                categoryTypesById.put(category.getId(), normalizeCategoryType(category.getName())));
+
+        // Keep locked tasks and fixed appointments out of the flexible scheduling pass.
         candidateTasks = candidateTasks.stream()
-                .filter(t -> "TODO".equalsIgnoreCase(t.getStatus()) || "IN_PROGRESS".equalsIgnoreCase(t.getStatus()))
-                .sorted((a, b) -> {
-                    int rankA = getQuadrantRank(a.getEisenhowerQuadrant(), a.getPriority());
-                    int rankB = getQuadrantRank(b.getEisenhowerQuadrant(), b.getPriority());
-                    return Integer.compare(rankA, rankB);
-                })
-                .collect(Collectors.toList());
+                .filter(task -> !alreadyScheduledTaskIds.contains(task.getId()))
+                .filter(task -> !Boolean.TRUE.equals(task.getIsLocked()))
+                .filter(t -> "TODO".equalsIgnoreCase(t.getStatus())
+                        || "IN_PROGRESS".equalsIgnoreCase(t.getStatus())
+                        || "OVERDUE".equalsIgnoreCase(t.getStatus()))
+                .filter(task -> isTaskRelevantOnDate(task, targetDate, scheduleZone))
+                .sorted(buildTaskPriorityComparator(targetDate, scheduleZone))
+                .toList();
 
         List<AutoScheduleDto.ScheduledTaskProposal> proposals = new ArrayList<>();
-        OffsetDateTime cursor = dayStart;
+        Set<Long> fixedTaskIds = new HashSet<>();
+        List<ScheduleSlot> freeSlots = isWorkDay
+                ? buildFreeSlots(dayStart, dayEnd, breakWindow, existingBlocks, bufferMinutes)
+                : new ArrayList<>();
 
-        for (Task task : candidateTasks) {
-            int duration = task.getEstimatedDurationMinutes() != null && task.getEstimatedDurationMinutes() > 0
-                    ? task.getEstimatedDurationMinutes() : 45;
+        // Fixed tasks retain their exact time. They are never moved by the flexible scheduler.
+        List<Task> fixedTasks = candidateTasks.stream().filter(this::isFixedTask).toList();
+        List<ScheduleSlot> acceptedFixedSlots = new ArrayList<>();
+        for (Task task : fixedTasks) {
+            OffsetDateTime fixedStart = task.getFixedStartTime();
+            OffsetDateTime fixedEnd = task.getFixedEndTime();
+            if (fixedStart == null || fixedEnd == null) continue;
+            long fixedDurationSeconds = Duration.between(fixedStart, fixedEnd).getSeconds();
+            if (!fixedEnd.isAfter(fixedStart)
+                    || fixedDurationSeconds < 60
+                    || fixedDurationSeconds > 86400
+                    || fixedDurationSeconds % 60 != 0
+                    || !fixedStart.atZoneSameInstant(scheduleZone).toLocalDate().equals(targetDate)) {
+                continue;
+            }
+            if ((targetDate.equals(today) && fixedStart.isBefore(nextWholeMinute))
+                    || hasOverlapBlocks(existingBlocks,
+                            fixedStart.minusMinutes(bufferMinutes), fixedEnd.plusMinutes(bufferMinutes))
+                    || hasOverlapSlots(acceptedFixedSlots,
+                            fixedStart.minusMinutes(bufferMinutes), fixedEnd.plusMinutes(bufferMinutes))) {
+                continue;
+            }
 
-            boolean slotFound = false;
-            while (!slotFound && (cursor.plusMinutes(duration).isBefore(dayEnd) || cursor.plusMinutes(duration).isEqual(dayEnd))) {
-                OffsetDateTime candidateEnd = cursor.plusMinutes(duration);
-                boolean hasOverlap = false;
+            fixedTaskIds.add(task.getId());
+            acceptedFixedSlots.add(new ScheduleSlot(fixedStart, fixedEnd));
+            reserveInterval(freeSlots, fixedStart, fixedEnd, bufferMinutes);
+            proposals.add(buildScheduleProposal(task, fixedStart, fixedEnd, categoryTypesById,
+                    "Giữ nguyên khung giờ cố định đã chọn."));
+        }
 
-                for (TimeBlock eb : existingBlocks) {
-                    if (cursor.isBefore(eb.getEndTime()) && candidateEnd.isAfter(eb.getStartTime())) {
-                        hasOverlap = true;
-                        cursor = eb.getEndTime().plusMinutes(bufferMinutes);
-                        break;
-                    }
-                }
+        ScheduleSlot peakWindow = isWorkDay
+                ? resolvePeakWindow(pref, targetDate, scheduleZone, workStart, workEnd)
+                : null;
+        List<Task> flexibleTasks = candidateTasks.stream()
+                .filter(task -> !isFixedTask(task))
+                .limit(500)
+                .toList();
 
-                if (!hasOverlap) {
-                    String rationale = generateRationale(task, cursor);
-                    proposals.add(AutoScheduleDto.ScheduledTaskProposal.builder()
-                            .taskId(task.getId())
-                            .title(task.getTitle())
-                            .categoryType(getCategoryTypeName(task.getCategoryId()))
-                            .priority(task.getPriority())
-                            .eisenhowerQuadrant(task.getEisenhowerQuadrant())
-                            .startTime(cursor)
-                            .endTime(candidateEnd)
-                            .durationMinutes(duration)
-                            .slotRationale(rationale)
-                            .build());
+        for (Task task : flexibleTasks) {
+            Integer configuredDuration = task.getEstimatedDurationMinutes();
+            int duration = configuredDuration == null || configuredDuration == 0 ? 45 : configuredDuration;
+            if (duration < 1 || duration > 1440 || freeSlots.isEmpty()) {
+                continue;
+            }
 
-                    if (Boolean.TRUE.equals(request.getApplyImmediately())) {
-                        TimeBlock newBlock = TimeBlock.builder()
-                                .userId(userId)
-                                .taskId(task.getId())
-                                .title(task.getTitle())
-                                .startTime(cursor)
-                                .endTime(candidateEnd)
-                                .isAutoScheduled(true)
-                                .colorCode("#6C5CE7")
-                                .note("Tự động xếp lịch thông minh bởi SmartTask AI: " + rationale)
-                                .build();
-                        timeBlockRepository.save(newBlock);
-                        existingBlocks.add(newBlock);
-                        existingBlocks.sort(Comparator.comparing(TimeBlock::getStartTime));
-                    }
+            SlotChoice choice = findBestSlot(freeSlots, duration, isFocusTask(task), peakWindow);
+            if (choice == null) continue;
 
-                    cursor = candidateEnd.plusMinutes(bufferMinutes);
-                    slotFound = true;
-                }
+            OffsetDateTime slotStart = choice.start();
+            OffsetDateTime slotEnd = slotStart.plusMinutes(duration);
+            String rationale = generateRationale(task, slotStart, scheduleZone);
+            if (isFocusTask(task) && peakWindow != null && !slotStart.isBefore(peakWindow.start())
+                    && slotEnd.compareTo(peakWindow.end()) <= 0) {
+                rationale += " Ưu tiên khung giờ hiệu suất cao đã cài đặt.";
+            }
+            proposals.add(buildScheduleProposal(task, slotStart, slotEnd, categoryTypesById, rationale));
+            reserveSlot(freeSlots, choice.slotIndex(), slotStart, slotEnd, bufferMinutes);
+        }
+
+        proposals.sort(Comparator.comparing(AutoScheduleDto.ScheduledTaskProposal::getStartTime));
+
+        if (Boolean.TRUE.equals(request.getApplyImmediately())) {
+            Map<Long, Task> tasksById = candidateTasks.stream().collect(Collectors.toMap(
+                    Task::getId, task -> task, (first, ignored) -> first));
+            for (AutoScheduleDto.ScheduledTaskProposal proposal : proposals) {
+                Task task = tasksById.get(proposal.getTaskId());
+                if (task == null) continue;
+                timeBlockRepository.save(TimeBlock.builder()
+                        .userId(userId)
+                        .taskId(task.getId())
+                        .title(task.getTitle())
+                        .startTime(proposal.getStartTime())
+                        .endTime(proposal.getEndTime())
+                        .isAutoScheduled(!fixedTaskIds.contains(task.getId()))
+                        .colorCode("#6C5CE7")
+                        .note(fixedTaskIds.contains(task.getId()) ? "Giữ nguyên khung giờ cố định." :
+                                "Tự động xếp lịch: " + proposal.getSlotRationale())
+                        .isLocked(Boolean.TRUE.equals(task.getIsLocked()))
+                        .build());
             }
         }
 
-        String summary = String.format("SmartTask AI đã tối ưu hóa lịch ngày %s: Tự động xếp thành công %d công việc theo ma trận Eisenhower (Ưu tiên khung giờ sáng cho việc quan trọng).",
-                targetDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")), proposals.size());
+        int remainingUnscheduled = Math.max(0, candidateTasks.size() - proposals.size());
+        String summary = buildScheduleSummary(targetDate, isWorkDay, proposals.size(),
+                remainingUnscheduled, bufferMinutes, pref);
 
         try {
             AiSchedulingLog aiLog = AiSchedulingLog.builder()
                     .userId(userId)
                     .actionType("AUTO_SCHEDULE")
-                    .promptInput("Tự động xếp lịch ngày " + targetDate)
-                    .aiResponse(objectMapper.writeValueAsString(proposals))
+                    .promptInput("AUTO_SCHEDULE " + targetDate + " tasks=" + proposals.size())
+                    .aiResponse("{\"scheduledCount\":" + proposals.size() + "}")
                     .status("SUCCESS")
                     .executionTimeMs(System.currentTimeMillis() - startTime)
                     .build();
@@ -1441,11 +1587,322 @@ public class AiServiceImpl implements AiService {
         return AutoScheduleDto.Response.builder()
                 .targetDate(targetDate.toString())
                 .scheduledCount(proposals.size())
-                .remainingUnscheduled(Math.max(0, candidateTasks.size() - proposals.size()))
+                .remainingUnscheduled(remainingUnscheduled)
                 .proposals(proposals)
                 .aiStrategySummary(summary)
-                .applied(Boolean.TRUE.equals(request.getApplyImmediately()))
+                .applied(Boolean.TRUE.equals(request.getApplyImmediately()) && !proposals.isEmpty())
                 .build();
+    }
+
+    private ZoneId resolveScheduleZone(UserPreference preference) {
+        if (preference != null && preference.getTimeZone() != null && !preference.getTimeZone().isBlank()) {
+            try {
+                return ZoneId.of(preference.getTimeZone().trim());
+            } catch (DateTimeException ignored) {
+                log.warn("Múi giờ trong thiết lập không hợp lệ; dùng Asia/Ho_Chi_Minh cho lịch tự động.");
+            }
+        }
+        return VIETNAM_ZONE;
+    }
+
+    private Set<DayOfWeek> parseWorkingDays(String configuredDays) {
+        if (configuredDays == null) {
+            return EnumSet.range(DayOfWeek.MONDAY, DayOfWeek.FRIDAY);
+        }
+        if (configuredDays.isBlank()) {
+            return EnumSet.noneOf(DayOfWeek.class);
+        }
+
+        Set<DayOfWeek> days = EnumSet.noneOf(DayOfWeek.class);
+        for (String rawDay : configuredDays.split("[,;\\s]+")) {
+            String token = rawDay.trim().toUpperCase(Locale.ROOT);
+            if (token.length() > 3) token = token.substring(0, 3);
+            switch (token) {
+                case "MON" -> days.add(DayOfWeek.MONDAY);
+                case "TUE" -> days.add(DayOfWeek.TUESDAY);
+                case "WED" -> days.add(DayOfWeek.WEDNESDAY);
+                case "THU" -> days.add(DayOfWeek.THURSDAY);
+                case "FRI" -> days.add(DayOfWeek.FRIDAY);
+                case "SAT" -> days.add(DayOfWeek.SATURDAY);
+                case "SUN" -> days.add(DayOfWeek.SUNDAY);
+                default -> { }
+            }
+        }
+        return days.isEmpty() ? EnumSet.range(DayOfWeek.MONDAY, DayOfWeek.FRIDAY) : days;
+    }
+
+    private ScheduleSlot resolveBreakWindow(
+            AutoScheduleDto request,
+            LocalDate targetDate,
+            ZoneId zone,
+            OffsetDateTime dayStart,
+            OffsetDateTime dayEnd) {
+        String startText = request.getBreakStartTime();
+        String endText = request.getBreakEndTime();
+        if ((startText == null || startText.isBlank()) && (endText == null || endText.isBlank())) {
+            startText = "12:00";
+            endText = "13:00";
+        } else if (startText == null || startText.isBlank() || endText == null || endText.isBlank()) {
+            throw new IllegalArgumentException("Cần chọn đầy đủ giờ bắt đầu và kết thúc giờ nghỉ.");
+        }
+
+        LocalTime breakStart;
+        LocalTime breakEnd;
+        try {
+            breakStart = LocalTime.parse(startText.trim());
+            breakEnd = LocalTime.parse(endText.trim());
+        } catch (DateTimeException e) {
+            throw new IllegalArgumentException("Giờ nghỉ không đúng định dạng HH:mm.");
+        }
+        if (!breakEnd.isAfter(breakStart)) {
+            throw new IllegalArgumentException("Giờ kết thúc nghỉ phải sau giờ bắt đầu nghỉ.");
+        }
+
+        OffsetDateTime requestedStart = targetDate.atTime(breakStart).atZone(zone).toOffsetDateTime();
+        OffsetDateTime requestedEnd = targetDate.atTime(breakEnd).atZone(zone).toOffsetDateTime();
+        OffsetDateTime clippedStart = requestedStart.isAfter(dayStart) ? requestedStart : dayStart;
+        OffsetDateTime clippedEnd = requestedEnd.isBefore(dayEnd) ? requestedEnd : dayEnd;
+        return clippedEnd.isAfter(clippedStart) ? new ScheduleSlot(clippedStart, clippedEnd) : null;
+    }
+
+    private boolean isActiveTimeBlock(TimeBlock block) {
+        if (block.getStartTime() == null || block.getEndTime() == null
+                || !block.getEndTime().isAfter(block.getStartTime())) {
+            return false;
+        }
+        String status = block.getStatus() != null ? block.getStatus().trim().toUpperCase(Locale.ROOT) : "";
+        return !Set.of("CANCELLED", "CANCELED", "DELETED").contains(status);
+    }
+
+    private boolean isTaskRelevantOnDate(Task task, LocalDate date, ZoneId zone) {
+        if (!isFixedTask(task)) return true;
+        OffsetDateTime fixedAnchor = task.getFixedStartTime() != null ? task.getFixedStartTime() : task.getFixedEndTime();
+        return fixedAnchor == null || fixedAnchor.atZoneSameInstant(zone).toLocalDate().equals(date);
+    }
+
+    private boolean isFixedTask(Task task) {
+        return Boolean.TRUE.equals(task.getIsFixedTime())
+                || task.getFixedStartTime() != null
+                || task.getFixedEndTime() != null;
+    }
+
+    private Comparator<Task> buildTaskPriorityComparator(LocalDate targetDate, ZoneId zone) {
+        return Comparator.comparingInt((Task task) -> deadlineRank(task, targetDate, zone))
+                .thenComparingInt(task -> getQuadrantRank(task.getEisenhowerQuadrant(), task.getPriority()))
+                .thenComparingInt(task -> priorityRank(task.getPriority()))
+                .thenComparing(task -> task.getDueDate() != null ? task.getDueDate().toInstant() : Instant.MAX)
+                .thenComparing(Comparator.comparingInt(this::normalizedTaskDuration).reversed())
+                .thenComparing(Task::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(Task::getId, Comparator.nullsLast(Comparator.naturalOrder()));
+    }
+
+    private int deadlineRank(Task task, LocalDate targetDate, ZoneId zone) {
+        if ("OVERDUE".equalsIgnoreCase(task.getStatus())) return 0;
+        if (task.getDueDate() == null) return 6;
+        long daysUntilDeadline = ChronoUnit.DAYS.between(
+                targetDate,
+                task.getDueDate().atZoneSameInstant(zone).toLocalDate());
+        if (daysUntilDeadline < 0) return 0;
+        if (daysUntilDeadline == 0) return 1;
+        if (daysUntilDeadline == 1) return 2;
+        if (daysUntilDeadline <= 3) return 3;
+        if (daysUntilDeadline <= 7) return 4;
+        return 5;
+    }
+
+    private int priorityRank(String priority) {
+        if ("URGENT".equalsIgnoreCase(priority)) return 0;
+        if ("HIGH".equalsIgnoreCase(priority)) return 1;
+        if ("LOW".equalsIgnoreCase(priority)) return 3;
+        return 2;
+    }
+
+    private int normalizedTaskDuration(Task task) {
+        Integer duration = task.getEstimatedDurationMinutes();
+        return duration != null && duration > 0 && duration <= 1440 ? duration : 45;
+    }
+
+    private boolean isFocusTask(Task task) {
+        return getQuadrantRank(task.getEisenhowerQuadrant(), task.getPriority()) <= 2
+                || "URGENT".equalsIgnoreCase(task.getPriority())
+                || "HIGH".equalsIgnoreCase(task.getPriority());
+    }
+
+    private ScheduleSlot resolvePeakWindow(
+            UserPreference preference,
+            LocalDate date,
+            ZoneId zone,
+            LocalTime workStart,
+            LocalTime workEnd) {
+        String peak = preference != null && preference.getPeakProductivityTime() != null
+                ? preference.getPeakProductivityTime().trim().toUpperCase(Locale.ROOT)
+                : "MORNING";
+        LocalTime preferredStart;
+        LocalTime preferredEnd;
+        switch (peak) {
+            case "AFTERNOON" -> {
+                preferredStart = LocalTime.of(13, 0);
+                preferredEnd = LocalTime.of(17, 0);
+            }
+            case "EVENING" -> {
+                preferredStart = LocalTime.of(17, 0);
+                preferredEnd = workEnd;
+            }
+            default -> {
+                preferredStart = workStart;
+                preferredEnd = LocalTime.NOON;
+            }
+        }
+        LocalTime clippedStart = preferredStart.isAfter(workStart) ? preferredStart : workStart;
+        LocalTime clippedEnd = preferredEnd.isBefore(workEnd) ? preferredEnd : workEnd;
+        if (!clippedEnd.isAfter(clippedStart)) return null;
+        return new ScheduleSlot(date.atTime(clippedStart).atZone(zone).toOffsetDateTime(),
+                date.atTime(clippedEnd).atZone(zone).toOffsetDateTime());
+    }
+
+    private List<ScheduleSlot> buildFreeSlots(
+            OffsetDateTime dayStart,
+            OffsetDateTime dayEnd,
+            ScheduleSlot breakWindow,
+            List<TimeBlock> existingBlocks,
+            int bufferMinutes) {
+        List<ScheduleSlot> occupied = new ArrayList<>();
+        for (TimeBlock block : existingBlocks) {
+            OffsetDateTime paddedStart = block.getStartTime().minusMinutes(bufferMinutes);
+            OffsetDateTime blockStart = paddedStart.isAfter(dayStart) ? paddedStart : dayStart;
+            OffsetDateTime bufferedEnd = block.getEndTime().plusMinutes(bufferMinutes);
+            OffsetDateTime blockEnd = bufferedEnd.isBefore(dayEnd) ? bufferedEnd : dayEnd;
+            if (blockEnd.isAfter(blockStart)) occupied.add(new ScheduleSlot(blockStart, blockEnd));
+        }
+        if (breakWindow != null) occupied.add(breakWindow);
+        occupied.sort(Comparator.comparing(ScheduleSlot::start));
+
+        List<ScheduleSlot> merged = new ArrayList<>();
+        for (ScheduleSlot slot : occupied) {
+            if (merged.isEmpty() || slot.start().isAfter(merged.get(merged.size() - 1).end())) {
+                merged.add(slot);
+            } else {
+                ScheduleSlot previous = merged.remove(merged.size() - 1);
+                OffsetDateTime end = slot.end().isAfter(previous.end()) ? slot.end() : previous.end();
+                merged.add(new ScheduleSlot(previous.start(), end));
+            }
+        }
+
+        List<ScheduleSlot> free = new ArrayList<>();
+        OffsetDateTime cursor = dayStart;
+        for (ScheduleSlot slot : merged) {
+            if (slot.start().isAfter(cursor)) free.add(new ScheduleSlot(cursor, slot.start()));
+            if (slot.end().isAfter(cursor)) cursor = slot.end();
+        }
+        if (dayEnd.isAfter(cursor)) free.add(new ScheduleSlot(cursor, dayEnd));
+        return free;
+    }
+
+    private SlotChoice findBestSlot(List<ScheduleSlot> freeSlots, int duration, boolean focus, ScheduleSlot peakWindow) {
+        if (focus && peakWindow != null) {
+            for (int i = 0; i < freeSlots.size(); i++) {
+                ScheduleSlot slot = freeSlots.get(i);
+                OffsetDateTime candidateStart = slot.start().isAfter(peakWindow.start()) ? slot.start() : peakWindow.start();
+                OffsetDateTime candidateEnd = candidateStart.plusMinutes(duration);
+                OffsetDateTime latestEnd = slot.end().isBefore(peakWindow.end()) ? slot.end() : peakWindow.end();
+                if (!candidateStart.isBefore(latestEnd)) continue;
+                if (!candidateEnd.isAfter(latestEnd)) return new SlotChoice(i, candidateStart);
+            }
+        }
+        for (int i = 0; i < freeSlots.size(); i++) {
+            ScheduleSlot slot = freeSlots.get(i);
+            if (!slot.start().plusMinutes(duration).isAfter(slot.end())) return new SlotChoice(i, slot.start());
+        }
+        return null;
+    }
+
+    private void reserveSlot(
+            List<ScheduleSlot> freeSlots,
+            int slotIndex,
+            OffsetDateTime start,
+            OffsetDateTime end,
+            int bufferMinutes) {
+        ScheduleSlot original = freeSlots.remove(slotIndex);
+        if (start.isAfter(original.start())) freeSlots.add(new ScheduleSlot(original.start(), start));
+        OffsetDateTime nextAvailable = end.plusMinutes(bufferMinutes);
+        if (original.end().isAfter(nextAvailable)) freeSlots.add(new ScheduleSlot(nextAvailable, original.end()));
+        freeSlots.sort(Comparator.comparing(ScheduleSlot::start));
+    }
+
+    private void reserveInterval(List<ScheduleSlot> freeSlots, OffsetDateTime start, OffsetDateTime end, int bufferMinutes) {
+        if (!end.isAfter(start)) return;
+        OffsetDateTime reservedStart = start.minusMinutes(bufferMinutes);
+        OffsetDateTime reservedEnd = end.plusMinutes(bufferMinutes);
+        List<ScheduleSlot> remaining = new ArrayList<>();
+        for (ScheduleSlot slot : freeSlots) {
+            if (!overlaps(slot.start(), slot.end(), reservedStart, reservedEnd)) {
+                remaining.add(slot);
+                continue;
+            }
+            if (reservedStart.isAfter(slot.start())) remaining.add(new ScheduleSlot(slot.start(), reservedStart));
+            if (slot.end().isAfter(reservedEnd)) remaining.add(new ScheduleSlot(reservedEnd, slot.end()));
+        }
+        remaining.sort(Comparator.comparing(ScheduleSlot::start));
+        freeSlots.clear();
+        freeSlots.addAll(remaining);
+    }
+
+    private boolean hasOverlapBlocks(List<TimeBlock> blocks, OffsetDateTime start, OffsetDateTime end) {
+        return blocks.stream().anyMatch(block -> overlaps(block.getStartTime(), block.getEndTime(), start, end));
+    }
+
+    private boolean hasOverlapSlots(List<ScheduleSlot> slots, OffsetDateTime start, OffsetDateTime end) {
+        return slots.stream().anyMatch(slot -> overlaps(slot.start(), slot.end(), start, end));
+    }
+
+    private boolean overlaps(OffsetDateTime firstStart, OffsetDateTime firstEnd,
+                             OffsetDateTime secondStart, OffsetDateTime secondEnd) {
+        return firstStart.isBefore(secondEnd) && firstEnd.isAfter(secondStart);
+    }
+
+    private AutoScheduleDto.ScheduledTaskProposal buildScheduleProposal(
+            Task task,
+            OffsetDateTime start,
+            OffsetDateTime end,
+            Map<Long, String> categoryTypesById,
+            String rationale) {
+        return AutoScheduleDto.ScheduledTaskProposal.builder()
+                .taskId(task.getId())
+                .title(task.getTitle())
+                .categoryType(categoryTypesById.getOrDefault(task.getCategoryId(), "WORK"))
+                .priority(task.getPriority())
+                .eisenhowerQuadrant(task.getEisenhowerQuadrant())
+                .startTime(start)
+                .endTime(end)
+                .durationMinutes((int) Duration.between(start, end).toMinutes())
+                .slotRationale(rationale)
+                .build();
+    }
+
+    private String normalizeCategoryType(String categoryName) {
+        String normalized = categoryName != null ? categoryName.trim().toLowerCase(Locale.ROOT) : "";
+        if (normalized.contains("học") || normalized.contains("study")) return "STUDY";
+        if (normalized.contains("sức khỏe") || normalized.contains("health")) return "HEALTH";
+        if (normalized.contains("giải trí") || normalized.contains("entertainment")) return "ENTERTAINMENT";
+        return "WORK";
+    }
+
+    private String buildScheduleSummary(
+            LocalDate date,
+            boolean workDay,
+            int scheduledCount,
+            int remainingCount,
+            int bufferMinutes,
+            UserPreference preference) {
+        String dateText = date.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+        if (!workDay) {
+            return String.format("Ngày %s không nằm trong ngày làm việc đã cài đặt. Lịch cố định được giữ nguyên; không xếp thêm việc linh hoạt.", dateText);
+        }
+        String peak = preference != null && preference.getPeakProductivityTime() != null
+                ? preference.getPeakProductivityTime().trim().toLowerCase(Locale.ROOT)
+                : "buổi sáng";
+        return String.format("Đã xếp %d việc cho ngày %s theo hạn chót, mức ưu tiên và ma trận Eisenhower; việc cần tập trung được ưu tiên vào khung hiệu suất cao (%s). Đã chừa %d phút giữa các phiên; còn %d việc chưa có khung phù hợp.",
+                scheduledCount, dateText, peak, bufferMinutes, remainingCount);
     }
 
     private int getQuadrantRank(String quadrant, String priority) {
@@ -1456,31 +1913,27 @@ public class AiServiceImpl implements AiService {
         return 2;
     }
 
-    private String generateRationale(Task task, OffsetDateTime slot) {
+    private String generateRationale(Task task, OffsetDateTime slot, ZoneId zone) {
         String quad = task.getEisenhowerQuadrant() != null ? task.getEisenhowerQuadrant().toUpperCase() : "SCHEDULE";
         int hour = slot.getHour();
-        String timeOfDay = (hour < 12) ? "buổi sáng (khung giờ vàng tập trung)" : (hour < 17) ? "buổi chiều" : "buổi tối";
-
-        switch (quad) {
-            case "DO_FIRST":
-                return "Xếp vào " + timeOfDay + " vì là việc Khẩn cấp & Quan trọng (Q1) cần giải quyết ngay đầu ngày.";
-            case "SCHEDULE":
-                return "Xếp vào " + timeOfDay + " để đảm bảo tiến độ công việc quan trọng dài hạn (Q2).";
-            case "DELEGATE":
-                return "Xếp vào " + timeOfDay + " (Q3) để xử lý nhanh sau các nhiệm vụ cốt lõi.";
-            case "DONT_DO":
-            default:
-                return "Xếp vào " + timeOfDay + " (Q4) khi các việc ưu tiên đã được giải quyết.";
+        String timeOfDay = (hour < 12) ? "buổi sáng" : (hour < 17) ? "buổi chiều" : "buổi tối";
+        String rationale = switch (quad) {
+            case "DO_FIRST" -> "Ưu tiên đầu ngày cho việc khẩn cấp và quan trọng (Q1).";
+            case "SCHEDULE" -> "Dành khung " + timeOfDay + " cho việc quan trọng cần lên lịch (Q2).";
+            case "DELEGATE" -> "Xếp việc Q3 sau các nhiệm vụ ưu tiên cao.";
+            case "DONT_DO" -> "Xếp việc Q4 sau khi đã phân bổ các nhiệm vụ ưu tiên hơn.";
+            default -> "Xếp theo mức ưu tiên và khung giờ còn trống.";
+        };
+        if ("URGENT".equalsIgnoreCase(task.getPriority()) || "HIGH".equalsIgnoreCase(task.getPriority())) {
+            rationale += " Mức ưu tiên " + task.getPriority().toLowerCase(Locale.ROOT) + ".";
         }
+        if (task.getDueDate() != null) {
+            String deadline = task.getDueDate().atZoneSameInstant(zone)
+                    .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"));
+            rationale += " Hạn chót: " + deadline + ".";
+        }
+        return rationale;
     }
 
-    private String getCategoryTypeName(Long categoryId) {
-        if (categoryId == null) return "WORK";
-        if (categoryId == 1L) return "STUDY";
-        if (categoryId == 2L) return "WORK";
-        if (categoryId == 3L) return "HEALTH";
-        if (categoryId == 4L) return "ENTERTAINMENT";
-        return "WORK";
-    }
 }
 

@@ -2,6 +2,7 @@ package com.taskmanager.controller;
 
 import com.taskmanager.entity.Notification;
 import com.taskmanager.repository.NotificationRepository;
+import com.taskmanager.repository.TaskRepository;
 import com.taskmanager.service.NotificationDecisionService;
 import com.taskmanager.util.UserResolver;
 import jakarta.servlet.http.HttpServletRequest;
@@ -17,10 +18,10 @@ import java.util.Map;
 @RestController
 @RequestMapping("/notifications")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class NotificationController {
 
     private final NotificationRepository notificationRepository;
+    private final TaskRepository taskRepository;
     private final NotificationDecisionService notificationDecisionService;
     private final UserResolver userResolver;
 
@@ -122,6 +123,9 @@ public class NotificationController {
         String message = (String) body.getOrDefault("message", "");
         String type = (String) body.getOrDefault("type", "reminder");
         Long taskId = body.get("taskId") != null ? Long.valueOf(body.get("taskId").toString()) : null;
+        if (taskId != null && taskRepository.findByIdAndUserId(taskId, userId).isEmpty()) {
+            throw new com.taskmanager.exception.ResourceNotFoundException("Không tìm thấy công việc #" + taskId);
+        }
 
         Notification notification = Notification.builder()
                 .userId(userId)

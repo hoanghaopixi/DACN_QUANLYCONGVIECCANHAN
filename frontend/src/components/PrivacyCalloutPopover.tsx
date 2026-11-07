@@ -96,12 +96,6 @@ export default function PrivacyCalloutPopover({
       onSuccess();
       onClose();
     } catch (err: any) {
-      if (trimmed === '123456' || trimmed === '1') {
-        setIsLoading(false);
-        onSuccess();
-        onClose();
-        return;
-      }
       setIsLoading(false);
       setError(formatAuthErrorMessage(err));
       inputRef.current?.focus();

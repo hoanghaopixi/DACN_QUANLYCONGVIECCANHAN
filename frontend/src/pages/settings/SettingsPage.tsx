@@ -526,8 +526,9 @@ export default function SettingsPage({
       setPasswordError('Vui lòng nhập mật khẩu hiện tại');
       return;
     }
-    if (newPassword.length < 1) {
-      setPasswordError('Mật khẩu mới không được để trống');
+    if (newPassword.length < 8 || newPassword.length > 50
+        || new TextEncoder().encode(newPassword).length > 72) {
+      setPasswordError('Mật khẩu mới phải có từ 8 đến 50 ký tự và không vượt quá giới hạn mã hóa.');
       return;
     }
     if (newPassword !== confirmPassword) {

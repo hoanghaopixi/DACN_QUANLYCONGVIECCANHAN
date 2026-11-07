@@ -45,6 +45,15 @@ export default function App() {
     return authService.getCurrentUser();
   });
 
+  useEffect(() => {
+    const handleExpiredSession = () => {
+      authService.logout();
+      setCurrentUser(null);
+    };
+    window.addEventListener('smarttask:session-expired', handleExpiredSession);
+    return () => window.removeEventListener('smarttask:session-expired', handleExpiredSession);
+  }, []);
+
   // ── Custom Personalized Background State ──
   const [backgroundSettings, setBackgroundSettings] = useState<{
     backgroundUrl?: string;
@@ -261,7 +270,10 @@ export default function App() {
         if (freshUser) {
           setCurrentUser(freshUser);
         }
-      }).catch(() => {});
+      }).catch(() => {
+        authService.logout();
+        setCurrentUser(null);
+      });
     }
   }, []);
 
@@ -572,7 +584,7 @@ export default function App() {
         await categoryService.createCategory({
           name: data.name,
           colorCode: data.colorCode,
-          workspaceId: activeWorkspace?.id || 1,
+          workspaceId: activeWorkspace?.id,
         });
         showToast(`Đã thêm nhóm mới "${data.name}"!`);
       }
@@ -635,13 +647,13 @@ export default function App() {
       if (taskData.id) {
         savedTask = await taskService.updateTask(taskData.id, {
           ...taskData,
-          workspaceId: taskData.workspaceId || activeWorkspace?.id || 1,
+          workspaceId: taskData.workspaceId ?? activeWorkspace?.id,
         });
         showToast('Đã cập nhật công việc!');
       } else {
         savedTask = await taskService.createTask({
           ...taskData,
-          workspaceId: activeWorkspace?.id || 1,
+          workspaceId: activeWorkspace?.id,
         });
         showToast('Đã thêm công việc mới vào cơ sở dữ liệu!');
       }
@@ -711,7 +723,7 @@ export default function App() {
         status: currentTask?.status,
         startTime: newStartTime,
         endTime: newEndTime,
-        workspaceId: currentTask?.workspaceId || activeWorkspace?.id || 1,
+        workspaceId: currentTask?.workspaceId ?? activeWorkspace?.id,
       });
       await loadData(activeWorkspace?.id);
     } catch (err) {
@@ -767,7 +779,7 @@ export default function App() {
         priority: (newTask as any).priority || 'MEDIUM',
         status: newTask.status || 'TODO',
         isAutoScheduled: true,
-        workspaceId: activeWorkspace?.id || 1,
+        workspaceId: activeWorkspace?.id,
       });
       showToast('Trợ lý AI đã thêm công việc vào lịch thành công!');
       await loadData(activeWorkspace?.id);
@@ -970,7 +982,7 @@ export default function App() {
                         onDeleteTask={handleDeleteTask}
                         onToggleTaskStatus={handleToggleTaskStatus}
                         onDuplicateTask={async (task) => {
-                          await taskService.createTask({ ...task, id: undefined, title: `${task.title} (bản sao)`, status: 'TODO', isLocked: false, workspaceId: activeWorkspace?.id || 1 });
+                          await taskService.createTask({ ...task, id: undefined, title: `${task.title} (bản sao)`, status: 'TODO', isLocked: false, workspaceId: activeWorkspace?.id });
                           showToast('Đã nhân bản công việc!');
                           await loadData(activeWorkspace?.id);
                         }}
@@ -1088,7 +1100,7 @@ export default function App() {
       <AutoScheduleModal
         isOpen={isAutoScheduleModalOpen}
         onClose={() => runViewTransition(() => setIsAutoScheduleModalOpen(false))}
-        workspaceId={activeWorkspace?.id || 1}
+        workspaceId={activeWorkspace?.id}
         onApplied={() => loadData(activeWorkspace?.id)}
         onShowToast={showToast}
       />

@@ -11,7 +11,6 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/productivity")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class ProductivityController {
 
     private final ProductivityService productivityService;

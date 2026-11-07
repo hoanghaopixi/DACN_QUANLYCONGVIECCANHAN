@@ -5,6 +5,7 @@ import com.taskmanager.entity.MediaHistory;
 import com.taskmanager.entity.UserPreference;
 import com.taskmanager.repository.MediaHistoryRepository;
 import com.taskmanager.repository.UserPreferenceRepository;
+import com.taskmanager.util.UploadedMediaValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -96,36 +97,15 @@ public class UserPreferenceService {
 
     @Transactional
     public java.util.Map<String, Object> uploadBackground(Long userId, org.springframework.web.multipart.MultipartFile file) {
-        if (file == null || file.isEmpty()) {
-            throw new RuntimeException("Tệp tải lên không được để trống");
+        UploadedMediaValidator.DetectedMedia detectedMedia;
+        try {
+            detectedMedia = UploadedMediaValidator.detectBackground(file);
+        } catch (java.io.IOException e) {
+            throw new IllegalArgumentException("Không đọc được tệp hình nền/video tải lên.", e);
         }
-
-        String contentType = file.getContentType();
         String originalFilename = file.getOriginalFilename();
-        String extension = "";
-        if (originalFilename != null && originalFilename.contains(".")) {
-            extension = originalFilename.substring(originalFilename.lastIndexOf(".")).toLowerCase();
-        }
-
-        String bgType = "IMAGE";
-        boolean isVideo = (contentType != null && contentType.startsWith("video/"))
-                || extension.matches("^\\.(mp4|webm|ogg|mov)$");
-        boolean isImage = (contentType != null && contentType.startsWith("image/"))
-                || extension.matches("^\\.(jpe?g|png|webp|gif|svg)$");
-
-        if (isVideo) {
-            bgType = "VIDEO";
-            if (!extension.matches("^\\.(mp4|webm|ogg|mov)$")) {
-                extension = ".mp4";
-            }
-        } else if (isImage) {
-            bgType = "IMAGE";
-            if (!extension.matches("^\\.(jpe?g|png|webp|gif|svg)$")) {
-                extension = ".jpg";
-            }
-        } else {
-            throw new RuntimeException("Chỉ chấp nhận tệp định dạng hình ảnh (JPG, PNG, WebP, GIF) hoặc video (MP4, WebM)");
-        }
+        String extension = detectedMedia.extension();
+        String bgType = detectedMedia.type();
 
         try {
             java.nio.file.Path bgDir = java.nio.file.Paths.get(uploadDir, "backgrounds").toAbsolutePath().normalize();
@@ -133,7 +113,7 @@ public class UserPreferenceService {
                 java.nio.file.Files.createDirectories(bgDir);
             }
 
-            String fileName = "bg_user_" + userId + "_" + System.currentTimeMillis() + extension;
+            String fileName = java.util.UUID.randomUUID() + extension;
             java.nio.file.Path targetPath = bgDir.resolve(fileName);
 
             java.nio.file.Files.copy(file.getInputStream(), targetPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
@@ -156,7 +136,7 @@ public class UserPreferenceService {
                         .userId(userId)
                         .mediaType("BACKGROUND_" + bgType)
                         .url(publicUrl)
-                        .fileName(originalFilename != null ? originalFilename : fileName)
+                        .fileName(originalFilename != null ? originalFilename.substring(0, Math.min(originalFilename.length(), 255)) : fileName)
                         .fileSize(file.getSize())
                         .createdAt(OffsetDateTime.now())
                         .build());

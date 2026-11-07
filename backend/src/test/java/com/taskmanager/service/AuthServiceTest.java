@@ -3,10 +3,9 @@ package com.taskmanager.service;
 import com.taskmanager.dto.AuthDto;
 import com.taskmanager.entity.Role;
 import com.taskmanager.entity.User;
-import com.taskmanager.exception.AccountLockedException;
-import com.taskmanager.exception.ResourceNotFoundException;
 import com.taskmanager.repository.RoleRepository;
 import com.taskmanager.repository.UserRepository;
+import com.taskmanager.security.JwtTokenService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -21,7 +20,6 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -35,6 +33,9 @@ class AuthServiceTest {
 
     @Mock
     private PasswordEncoder passwordEncoder;
+
+    @Mock
+    private JwtTokenService jwtTokenService;
 
     @InjectMocks
     private AuthService authService;
@@ -61,12 +62,14 @@ class AuthServiceTest {
 
         when(userRepository.findByEmailIgnoreCase("test@example.com")).thenReturn(Optional.of(sampleUser));
         when(passwordEncoder.matches("password123", "encoded_hash_123")).thenReturn(true);
+        when(jwtTokenService.issueToken(sampleUser)).thenReturn("signed-test-token");
 
         AuthDto.AuthResponse response = authService.login(request);
 
         assertNotNull(response);
         assertEquals("test@example.com", response.getEmail());
         assertEquals("Test User", response.getFullName());
+        assertEquals("signed-test-token", response.getToken());
     }
 
     @Test
@@ -78,19 +81,19 @@ class AuthServiceTest {
         when(passwordEncoder.matches("wrong_pass", "encoded_hash_123")).thenReturn(false);
 
         BadCredentialsException ex = assertThrows(BadCredentialsException.class, () -> authService.login(request));
-        assertEquals("Mật khẩu không chính xác. Vui lòng kiểm tra lại!", ex.getMessage());
+        assertEquals("Email hoặc mật khẩu không chính xác.", ex.getMessage());
     }
 
     @Test
-    @DisplayName("Login ném ResourceNotFoundException khi tài khoản email không tồn tại")
-    void login_EmailNotFound_ThrowsResourceNotFoundException() {
+    @DisplayName("Login dùng cùng thông báo lỗi khi tài khoản không tồn tại")
+    void login_EmailNotFound_ThrowsGenericBadCredentialsException() {
         AuthDto.LoginRequest request = new AuthDto.LoginRequest("notfound@example.com", "password123");
 
         when(userRepository.findByEmailIgnoreCase("notfound@example.com")).thenReturn(Optional.empty());
         when(userRepository.findByEmail("notfound@example.com")).thenReturn(Optional.empty());
 
-        ResourceNotFoundException ex = assertThrows(ResourceNotFoundException.class, () -> authService.login(request));
-        assertTrue(ex.getMessage().contains("chưa được đăng ký"));
+        BadCredentialsException ex = assertThrows(BadCredentialsException.class, () -> authService.login(request));
+        assertEquals("Email hoặc mật khẩu không chính xác.", ex.getMessage());
     }
 
     @Test
@@ -112,15 +115,15 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("Login ném AccountLockedException khi tài khoản bị khóa")
-    void login_AccountInactive_ThrowsAccountLockedException() {
+    @DisplayName("Login dùng thông báo lỗi chung khi tài khoản bị vô hiệu hóa")
+    void login_AccountInactive_ThrowsGenericBadCredentialsException() {
         sampleUser.setIsActive(false);
         AuthDto.LoginRequest request = new AuthDto.LoginRequest("test@example.com", "password123");
 
         when(userRepository.findByEmailIgnoreCase("test@example.com")).thenReturn(Optional.of(sampleUser));
 
-        AccountLockedException ex = assertThrows(AccountLockedException.class, () -> authService.login(request));
-        assertTrue(ex.getMessage().contains("khóa"));
+        BadCredentialsException ex = assertThrows(BadCredentialsException.class, () -> authService.login(request));
+        assertEquals("Email hoặc mật khẩu không chính xác.", ex.getMessage());
     }
 
     @Test

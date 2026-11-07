@@ -4,11 +4,12 @@ import com.taskmanager.dto.AuthDto;
 import com.taskmanager.entity.MediaHistory;
 import com.taskmanager.entity.Role;
 import com.taskmanager.entity.User;
-import com.taskmanager.exception.AccountLockedException;
 import com.taskmanager.exception.ResourceNotFoundException;
 import com.taskmanager.repository.MediaHistoryRepository;
 import com.taskmanager.repository.RoleRepository;
 import com.taskmanager.repository.UserRepository;
+import com.taskmanager.security.JwtTokenService;
+import com.taskmanager.util.UploadedMediaValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -27,6 +28,7 @@ public class AuthService {
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
     private final MediaHistoryRepository mediaHistoryRepository;
+    private final JwtTokenService jwtTokenService;
 
     public AuthDto.AuthResponse login(AuthDto.LoginRequest request) {
         if (request == null) {
@@ -47,28 +49,29 @@ public class AuthService {
         if (rawPassword == null || rawPassword.isEmpty()) {
             throw new IllegalArgumentException("Vui lòng nhập mật khẩu");
         }
+        if (rawPassword.length() > 50 || rawPassword.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72) {
+            throw new IllegalArgumentException("Mật khẩu không được vượt quá giới hạn hỗ trợ.");
+        }
 
         // Tìm kiếm người dùng theo email (hỗ trợ phân biệt hoa thường và không phân biệt)
         User user = userRepository.findByEmailIgnoreCase(trimmedEmail)
                 .orElseGet(() -> userRepository.findByEmail(trimmedEmail)
-                        .orElseThrow(() -> new ResourceNotFoundException("Tài khoản email này chưa được đăng ký trong hệ thống")));
+                        .orElseThrow(() -> new BadCredentialsException("Email hoặc mật khẩu không chính xác.")));
 
         if (Boolean.FALSE.equals(user.getIsActive())) {
-            throw new AccountLockedException("Tài khoản của bạn đã bị khóa hoặc chưa kích hoạt. Vui lòng liên hệ quản trị viên.");
+            throw new BadCredentialsException("Email hoặc mật khẩu không chính xác.");
         }
 
         // Kiểm tra mật khẩu mã hóa BCrypt
         if (!passwordEncoder.matches(rawPassword, user.getPasswordHash())) {
-            throw new BadCredentialsException("Mật khẩu không chính xác. Vui lòng kiểm tra lại!");
+            throw new BadCredentialsException("Email hoặc mật khẩu không chính xác.");
         }
 
         String primaryRole = user.getRoles().stream()
                 .anyMatch(r -> "ROLE_ADMIN".equals(r.getName())) ? "Quản trị viên" : "Người dùng";
 
-        String mockJwt = "jwt_token_" + user.getId() + "_" + System.currentTimeMillis();
-
         return AuthDto.AuthResponse.builder()
-                .token(mockJwt)
+                .token(jwtTokenService.issueToken(user))
                 .email(user.getEmail())
                 .fullName(user.getFullName())
                 .role(primaryRole)
@@ -103,6 +106,10 @@ public class AuthService {
         if (rawPassword == null || rawPassword.isEmpty()) {
             throw new IllegalArgumentException("Vui lòng nhập mật khẩu");
         }
+        if (rawPassword.length() < 8 || rawPassword.length() > 50
+                || rawPassword.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72) {
+            throw new IllegalArgumentException("Mật khẩu phải có từ 8 đến 50 ký tự và không vượt quá giới hạn mã hóa.");
+        }
 
         if (userRepository.existsByEmailIgnoreCase(trimmedEmail) || userRepository.existsByEmail(trimmedEmail)) {
             throw new IllegalArgumentException("Địa chỉ email này đã được sử dụng. Vui lòng đăng nhập hoặc dùng email khác.");
@@ -123,7 +130,7 @@ public class AuthService {
         User saved = userRepository.save(newUser);
 
         return AuthDto.AuthResponse.builder()
-                .token("jwt_token_" + saved.getId() + "_" + System.currentTimeMillis())
+                .token(jwtTokenService.issueToken(saved))
                 .email(saved.getEmail())
                 .fullName(saved.getFullName())
                 .role("Người dùng")
@@ -140,11 +147,16 @@ public class AuthService {
             throw new BadCredentialsException("Mật khẩu hiện tại không chính xác");
         }
 
-        if (request.getNewPassword() == null || request.getNewPassword().trim().isEmpty()) {
-            throw new IllegalArgumentException("Vui lòng nhập mật khẩu mới");
+        String newPassword = request.getNewPassword();
+        if (newPassword == null || newPassword.length() < 8 || newPassword.length() > 50
+                || newPassword.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72) {
+            throw new IllegalArgumentException("Mật khẩu mới phải có từ 8 đến 50 ký tự và không vượt quá giới hạn mã hóa.");
         }
 
-        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword().trim()));
+        if (passwordEncoder.matches(newPassword, user.getPasswordHash())) {
+            throw new IllegalArgumentException("Mật khẩu mới phải khác mật khẩu hiện tại.");
+        }
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
         user.setUpdatedAt(java.time.OffsetDateTime.now());
         userRepository.save(user);
     }
@@ -181,7 +193,7 @@ public class AuthService {
                 .anyMatch(r -> "ROLE_ADMIN".equals(r.getName())) ? "Quản trị viên" : "Người dùng";
 
         return AuthDto.AuthResponse.builder()
-                .token("jwt_token_" + saved.getId() + "_" + System.currentTimeMillis())
+                .token(jwtTokenService.issueToken(saved))
                 .email(saved.getEmail())
                 .fullName(saved.getFullName())
                 .role(primaryRole)
@@ -198,7 +210,7 @@ public class AuthService {
                 .anyMatch(r -> "ROLE_ADMIN".equals(r.getName())) ? "Quản trị viên" : "Người dùng";
 
         return AuthDto.AuthResponse.builder()
-                .token("jwt_token_" + user.getId() + "_" + System.currentTimeMillis())
+                .token(jwtTokenService.issueToken(user))
                 .email(user.getEmail())
                 .fullName(user.getFullName())
                 .role(primaryRole)
@@ -215,9 +227,11 @@ public class AuthService {
             throw new IllegalArgumentException("Tệp tải lên không được để trống");
         }
 
-        String contentType = file.getContentType();
-        if (contentType == null || !contentType.startsWith("image/")) {
-            throw new IllegalArgumentException("Chỉ chấp nhận các tệp định dạng hình ảnh (JPEG, PNG, WebP, GIF, SVG)");
+        UploadedMediaValidator.DetectedMedia detectedMedia;
+        try {
+            detectedMedia = UploadedMediaValidator.detectImage(file);
+        } catch (java.io.IOException e) {
+            throw new IllegalArgumentException("Không đọc được tệp ảnh tải lên.", e);
         }
 
         User user = userRepository.findById(userId)
@@ -230,15 +244,8 @@ public class AuthService {
             }
 
             String originalFilename = file.getOriginalFilename();
-            String extension = ".jpg";
-            if (originalFilename != null && originalFilename.contains(".")) {
-                extension = originalFilename.substring(originalFilename.lastIndexOf(".")).toLowerCase();
-                if (!extension.matches("^\\.(jpe?g|png|webp|gif|svg)$")) {
-                    extension = ".jpg";
-                }
-            }
-
-            String fileName = "avatar_user_" + userId + "_" + System.currentTimeMillis() + extension;
+            String extension = detectedMedia.extension();
+            String fileName = java.util.UUID.randomUUID() + extension;
             java.nio.file.Path targetPath = avatarDir.resolve(fileName);
 
             // Save file to disk
@@ -255,7 +262,7 @@ public class AuthService {
                         .userId(userId)
                         .mediaType("AVATAR")
                         .url(publicUrl)
-                        .fileName(originalFilename != null ? originalFilename : fileName)
+                        .fileName(originalFilename != null ? originalFilename.substring(0, Math.min(originalFilename.length(), 255)) : fileName)
                         .fileSize(file.getSize())
                         .createdAt(java.time.OffsetDateTime.now())
                         .build());

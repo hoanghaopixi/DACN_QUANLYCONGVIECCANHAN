@@ -16,7 +16,6 @@ import java.util.List;
 @Slf4j
 @RestController
 @RequestMapping("/ai")
-@CrossOrigin(origins = "*")
 public class AiController {
 
     private final AiService aiService;
@@ -32,11 +31,9 @@ public class AiController {
             @RequestBody AiParseTaskRequest request,
             HttpServletRequest servletRequest) {
 
-        if (request.getUserId() == null) {
-            request.setUserId(userResolver.resolveUserId(servletRequest));
-        }
-
-        log.info("Nhận yêu cầu bóc tách câu lệnh AI từ user {}: '{}'", request.getUserId(), request.getPrompt());
+        Long userId = userResolver.resolveUserId(servletRequest);
+        request.setUserId(userId);
+        log.info("Nhận yêu cầu bóc tách câu lệnh AI từ user {}", userId);
         AiParseTaskResponse response = aiService.parseTaskFromNaturalLanguage(request);
         return ResponseEntity.ok(response);
     }
@@ -55,7 +52,7 @@ public class AiController {
             @RequestBody com.taskmanager.dto.request.AiBreakdownRequest request,
             HttpServletRequest servletRequest) {
         Long userId = userResolver.resolveUserId(servletRequest);
-        log.info("Nhận yêu cầu phân rã công việc trực tiếp bằng Gemini AI cho tiêu đề '{}' từ user {}", request.getTitle(), userId);
+        log.info("Nhận yêu cầu phân rã công việc trực tiếp bằng Gemini AI từ user {}", userId);
         return ResponseEntity.ok(aiService.breakdownTaskByPrompt(userId, request));
     }
 

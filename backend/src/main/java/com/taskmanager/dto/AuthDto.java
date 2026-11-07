@@ -19,6 +19,7 @@ public class AuthDto {
         private String email;
 
         @NotBlank(message = "Vui lòng nhập mật khẩu")
+        @Size(max = 50, message = "Mật khẩu không được vượt quá 50 ký tự")
         private String password;
     }
 
@@ -35,7 +36,7 @@ public class AuthDto {
         private String email;
 
         @NotBlank(message = "Vui lòng nhập mật khẩu")
-        @Size(max = 50, message = "Mật khẩu không được vượt quá 50 ký tự")
+        @Size(min = 8, max = 50, message = "Mật khẩu phải có từ 8 đến 50 ký tự")
         private String password;
     }
 
@@ -47,6 +48,7 @@ public class AuthDto {
         private String currentPassword;
 
         @NotBlank(message = "Vui lòng nhập mật khẩu mới")
+        @Size(min = 8, max = 50, message = "Mật khẩu mới phải có từ 8 đến 50 ký tự")
         private String newPassword;
     }
 
