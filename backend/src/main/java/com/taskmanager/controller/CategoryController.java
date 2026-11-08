@@ -1,7 +1,6 @@
 package com.taskmanager.controller;
 
 import com.taskmanager.entity.Category;
-import com.taskmanager.entity.User;
 import com.taskmanager.repository.CategoryRepository;
 import com.taskmanager.repository.WorkspaceRepository;
 import com.taskmanager.util.UserResolver;

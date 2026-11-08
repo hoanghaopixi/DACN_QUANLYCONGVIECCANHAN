@@ -46,7 +46,7 @@ public class Task {
 
     @Column(name = "\"TrangThai\"", length = 20)
     @Builder.Default
-    private String status = "TODO"; // TODO, IN_PROGRESS, COMPLETED, CANCELLED, OVERDUE
+    private String status = "TODO"; // Values: TODO, IN_PROGRESS, COMPLETED, CANCELLED, OVERDUE
 
     @Column(name = "\"HanChot\"")
     private OffsetDateTime dueDate;

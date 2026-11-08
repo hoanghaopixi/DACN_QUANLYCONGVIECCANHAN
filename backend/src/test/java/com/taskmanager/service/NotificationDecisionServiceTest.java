@@ -2,7 +2,6 @@ package com.taskmanager.service;
 
 import com.taskmanager.entity.Notification;
 import com.taskmanager.entity.Task;
-import com.taskmanager.entity.TimeBlock;
 import com.taskmanager.repository.NotificationRepository;
 import com.taskmanager.repository.TaskRepository;
 import com.taskmanager.repository.TimeBlockRepository;

@@ -107,12 +107,12 @@ public class GeminiApiClient {
                 JsonNode parts = candidates.get(0).path("content").path("parts");
                 if (parts.isArray() && !parts.isEmpty()) {
                     for (JsonNode part : parts) {
-                        String text = part.path("text").asText();
+                        String text = part.path("text").asString();
                         if (text != null && !text.isBlank() && text.contains("{")) {
                             return Optional.of(text);
                         }
                     }
-                    String generatedJsonText = parts.get(0).path("text").asText();
+                    String generatedJsonText = parts.get(0).path("text").asString();
                     return Optional.ofNullable(generatedJsonText);
                 }
             }

@@ -280,8 +280,8 @@ public class AiServiceImpl implements AiService {
 
                 JsonNode node = objectMapper.readTree(jsonText);
                 boolean isValidTask = node.has("isValidTask") ? node.path("isValidTask").asBoolean(true) : true;
-                String valType = node.path("validationType").asText("").trim().toUpperCase();
-                String validationMsg = node.path("validationMessage").asText(null);
+                String valType = node.path("validationType").asString("").trim().toUpperCase();
+                String validationMsg = node.path("validationMessage").asString(null);
 
                 if (!isValidTask || "INAPPROPRIATE".equals(valType) || "CHAT".equals(valType) || "GREETING".equals(valType)) {
                     String finalValType = "INAPPROPRIATE".equals(valType) ? "INAPPROPRIATE" : "CHAT";
@@ -302,20 +302,20 @@ public class AiServiceImpl implements AiService {
                     int taskLimit = Math.min(tasksNode.size(), MAX_AI_TASKS);
                     for (int taskIndex = 0; taskIndex < taskLimit; taskIndex++) {
                         JsonNode tNode = tasksNode.get(taskIndex);
-                        String tTitle = cleanTitle(tNode.path("title").asText(""));
+                        String tTitle = cleanTitle(tNode.path("title").asString(""));
                         if (tTitle.length() < 2 || tTitle.length() > 255 || "Việc".equalsIgnoreCase(tTitle) || "Công việc mới".equalsIgnoreCase(tTitle)
                                 || "Alo".equalsIgnoreCase(tTitle) || "Alo alo".equalsIgnoreCase(tTitle)) {
                             continue;
                         }
-                        String catType = normalizeAiCategory(tNode.path("categoryType").asText("WORK"));
-                        String startStr = tNode.path("startTime").asText();
+                        String catType = normalizeAiCategory(tNode.path("categoryType").asString("WORK"));
+                        String startStr = tNode.path("startTime").asString();
                         int duration = tNode.path("estimatedDurationMinutes").asInt(60);
                         if (duration < 1 || duration > 1440) {
                             continue;
                         }
-                        String priority = normalizeAiPriority(tNode.path("priority").asText("MEDIUM"));
+                        String priority = normalizeAiPriority(tNode.path("priority").asString("MEDIUM"));
                         boolean isFixed = tNode.path("isFixedTime").asBoolean(true);
-                        String note = limitText(tNode.path("note").asText("Được phân tích tự động bởi Gemini AI"), 1000);
+                        String note = limitText(tNode.path("note").asString("Được phân tích tự động bởi Gemini AI"), 1000);
 
                         OffsetDateTime startTime = parseIsoDateTimeOrFallback(startStr,
                                 refDateTime.plusDays(1).withHour(9).withMinute(0));
@@ -336,18 +336,18 @@ public class AiServiceImpl implements AiService {
                                 .build());
                     }
                 } else if (node.has("title")) {
-                    String tTitle = cleanTitle(node.path("title").asText(""));
+                    String tTitle = cleanTitle(node.path("title").asString(""));
                     if (tTitle.length() >= 2 && tTitle.length() <= 255 && !"Việc".equalsIgnoreCase(tTitle) && !"Công việc mới".equalsIgnoreCase(tTitle)
                             && !"Alo".equalsIgnoreCase(tTitle)) {
-                        String catType = normalizeAiCategory(node.path("categoryType").asText("WORK"));
-                        String startStr = node.path("startTime").asText();
+                        String catType = normalizeAiCategory(node.path("categoryType").asString("WORK"));
+                        String startStr = node.path("startTime").asString();
                         int duration = node.path("estimatedDurationMinutes").asInt(60);
                         if (duration < 1 || duration > 1440) {
                             return null;
                         }
-                        String priority = normalizeAiPriority(node.path("priority").asText("MEDIUM"));
+                        String priority = normalizeAiPriority(node.path("priority").asString("MEDIUM"));
                         boolean isFixed = node.path("isFixedTime").asBoolean(true);
-                        String note = limitText(node.path("note").asText("Được phân tích tự động bởi Gemini AI"), 1000);
+                        String note = limitText(node.path("note").asString("Được phân tích tự động bởi Gemini AI"), 1000);
 
                         OffsetDateTime startTime = parseIsoDateTimeOrFallback(startStr,
                                 refDateTime.plusDays(1).withHour(9).withMinute(0));
@@ -1140,7 +1140,7 @@ public class AiServiceImpl implements AiService {
                         int subtaskLimit = Math.min(array.size(), MAX_AI_SUBTASKS);
                         for (int subtaskIndex = 0; subtaskIndex < subtaskLimit; subtaskIndex++) {
                             JsonNode n = array.get(subtaskIndex);
-                            String stTitle = n.path("title").asText("").trim();
+                            String stTitle = n.path("title").asString("").trim();
                             int dur = n.path("durationMinutes").asInt(15);
                             if (!stTitle.isEmpty() && stTitle.length() <= 255 && dur >= 1 && dur <= 1440) {
                                 Subtask subtask = Subtask.builder()
@@ -1292,7 +1292,7 @@ public class AiServiceImpl implements AiService {
                         int subtaskLimit = Math.min(array.size(), MAX_AI_SUBTASKS);
                         for (int subtaskIndex = 0; subtaskIndex < subtaskLimit; subtaskIndex++) {
                             JsonNode n = array.get(subtaskIndex);
-                            String stTitle = n.path("title").asText("").trim();
+                            String stTitle = n.path("title").asString("").trim();
                             int dur = n.path("durationMinutes").asInt(15);
                             if (!stTitle.isEmpty() && stTitle.length() <= 255 && dur >= 1 && dur <= 1440) {
                                 result.add(SubtaskDto.builder()

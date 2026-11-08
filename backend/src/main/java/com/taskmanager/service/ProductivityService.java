@@ -163,14 +163,14 @@ public class ProductivityService {
                     clean = clean.trim();
 
                     JsonNode node = objectMapper.readTree(clean);
-                    if (node.has("feedback") && !node.path("feedback").asText().isBlank()) {
-                        aiFeedback = node.path("feedback").asText();
+                    if (node.has("feedback") && !node.path("feedback").asString().isBlank()) {
+                        aiFeedback = node.path("feedback").asString();
                     }
-                    if (node.has("strengths") && !node.path("strengths").asText().isBlank()) {
-                        aiStrengths = node.path("strengths").asText();
+                    if (node.has("strengths") && !node.path("strengths").asString().isBlank()) {
+                        aiStrengths = node.path("strengths").asString();
                     }
-                    if (node.has("tips") && !node.path("tips").asText().isBlank()) {
-                        aiTips = node.path("tips").asText();
+                    if (node.has("tips") && !node.path("tips").asString().isBlank()) {
+                        aiTips = node.path("tips").asString();
                     }
                 }
             } catch (Exception e) {
