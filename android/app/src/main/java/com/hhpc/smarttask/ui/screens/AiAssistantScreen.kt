@@ -120,31 +120,17 @@ fun AiAssistantScreen(
                 .verticalScroll(scrollState)
                 .padding(bottom = 90.dp)
         ) {
-            // Header
+            // Clean Header without leading icon and without redundant subtitle text
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(top = 12.dp, bottom = 12.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.AutoAwesome,
-                    contentDescription = null,
-                    tint = EmeraldPrimary,
-                    modifier = Modifier.size(28.dp)
+                Text(
+                    text = "Trợ lý AI Gemini",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = appColors.textPrimary
                 )
-                Spacer(modifier = Modifier.width(8.dp))
-                Column {
-                    Text(
-                        text = "Trợ Lý AI Gemini",
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = appColors.textPrimary
-                    )
-                    Text(
-                        text = "Bóc tách ngôn ngữ tự nhiên & tự động phân bổ lịch trình",
-                        fontSize = 12.sp,
-                        color = appColors.textSecondary
-                    )
-                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -206,7 +192,7 @@ fun AiAssistantScreen(
                         Icon(Icons.Default.ElectricBolt, contentDescription = null, tint = LimeHighlight, modifier = Modifier.size(24.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Động cơ Lập lịch Tự động (Auto-Scheduler)",
+                            text = "Động cơ lập lịch tự động (Auto-Scheduler)",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = appColors.textPrimary
@@ -252,7 +238,7 @@ fun AiAssistantScreen(
                                 modifier = Modifier.size(20.dp)
                             )
                         } else {
-                            Text(text = "Tối ưu & Tự động Lập lịch ngay", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text(text = "Tối ưu & Tự động lập lịch ngay", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
                     }
 
@@ -399,7 +385,7 @@ fun AiAssistantScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Prompt Suggestions Section ("Bạn cũng có thể thử" - Matching Web App)
+            // Prompt Suggestions Section
             Text(
                 text = "Bạn cũng có thể thử:",
                 fontSize = 14.sp,
@@ -497,7 +483,7 @@ fun AiAssistantScreen(
 
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Trợ Lý AI Gemini",
+                                    text = "Trợ lý AI Gemini",
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = EmeraldPrimary

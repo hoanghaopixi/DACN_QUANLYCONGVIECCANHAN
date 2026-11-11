@@ -12,17 +12,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ElectricBolt
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,7 +36,37 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hhpc.smarttask.data.model.TaskDto
 import com.hhpc.smarttask.ui.theme.*
+import kotlinx.coroutines.launch
 
+fun formatToDdMmYyyy(rawDate: String?): String {
+    if (rawDate.isNullOrBlank()) return ""
+    return try {
+        if (rawDate.contains("T")) {
+            val datePart = rawDate.substringBefore("T") // e.g. "2026-10-14"
+            val timePart = rawDate.substringAfter("T").take(5) // e.g. "16:00"
+            val parts = datePart.split("-")
+            if (parts.size == 3) {
+                val formattedDate = "${parts[2]}/${parts[1]}/${parts[0]}" // "14/10/2026"
+                "$timePart · $formattedDate"
+            } else {
+                rawDate
+            }
+        } else if (rawDate.contains("-")) {
+            val parts = rawDate.split("-")
+            if (parts.size == 3) {
+                "${parts[2]}/${parts[1]}/${parts[0]}" // "14/10/2026"
+            } else {
+                rawDate
+            }
+        } else {
+            rawDate
+        }
+    } catch (e: Exception) {
+        rawDate
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     taskViewModel: TaskViewModel
@@ -46,23 +77,59 @@ fun HomeScreen(
     val isLoading by taskViewModel.isLoading.collectAsState()
     val report by taskViewModel.productivityReport.collectAsState()
     val appColors = LocalAppColors.current
+    val scope = rememberCoroutineScope()
 
     var searchQuery by remember { mutableStateOf("") }
+    var selectedStatusFilter by remember { mutableStateOf("ALL") } // "ALL", "TODO", "COMPLETED", "RECURRING"
+    var selectedPriorityFilter by remember { mutableStateOf("ALL") } // "ALL", "URGENT", "HIGH", "MEDIUM", "LOW"
+
     var showAddDialog by remember { mutableStateOf(false) }
     var showAddWsDialog by remember { mutableStateOf(false) }
     var editingTask by remember { mutableStateOf<TaskDto?>(null) }
+    var isRefreshing by remember { mutableStateOf(false) }
 
-    val filteredTasks = remember(tasks, searchQuery) {
-        if (searchQuery.isBlank()) tasks
-        else tasks.filter {
-            it.title.contains(searchQuery, ignoreCase = true) ||
-            (it.description?.contains(searchQuery, ignoreCase = true) == true)
+    // Real-time filtering
+    val filteredTasks = remember(tasks, searchQuery, selectedStatusFilter, selectedPriorityFilter) {
+        tasks.filter { task ->
+            val matchesSearch = searchQuery.isBlank() ||
+                task.title.contains(searchQuery, ignoreCase = true) ||
+                (task.description?.contains(searchQuery, ignoreCase = true) == true)
+
+            val matchesStatus = when (selectedStatusFilter) {
+                "TODO" -> task.status != "COMPLETED"
+                "COMPLETED" -> task.status == "COMPLETED"
+                "RECURRING" -> task.isRecurring == true
+                else -> true
+            }
+
+            val matchesPriority = when (selectedPriorityFilter) {
+                "URGENT" -> task.priority == "URGENT"
+                "HIGH" -> task.priority == "HIGH"
+                "MEDIUM" -> task.priority == "MEDIUM"
+                "LOW" -> task.priority == "LOW"
+                else -> true
+            }
+
+            matchesSearch && matchesStatus && matchesPriority
         }
     }
 
-    val upcomingTask = tasks.firstOrNull { it.status != "COMPLETED" }
+    val totalCount = tasks.size
+    val todoCount = tasks.count { it.status != "COMPLETED" }
+    val overdueCount = tasks.count { it.status == "OVERDUE" }
+    val completedCount = tasks.count { it.status == "COMPLETED" }
+    val recurringCount = tasks.count { it.isRecurring == true }
 
-    Box(
+    // Dùng 1 LazyColumn duy nhất bao trọn toàn màn hình để Pull-To-Refresh bắt được sự kiện cuộn
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = {
+            scope.launch {
+                isRefreshing = true
+                taskViewModel.refreshData()
+                isRefreshing = false
+            }
+        },
         modifier = Modifier
             .fillMaxSize()
             .background(
@@ -75,64 +142,29 @@ fun HomeScreen(
                 )
             )
     ) {
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(top = 12.dp, bottom = 100.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Header Bar with Notification Bell & Add Task (Symmetrical 42dp x 42dp Buttons)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp, bottom = 10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
+            // -- HEADER ITEM --
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        text = "SmartTask AI",
-                        fontSize = 22.sp,
+                        text = "Quản lý công việc",
+                        fontSize = 24.sp,
                         fontWeight = FontWeight.Bold,
                         color = appColors.textPrimary
                     )
-                    Text(
-                        text = "Chúc bạn một ngày tốt lành !",
-                        fontSize = 12.sp,
-                        color = appColors.textSecondary
-                    )
-                }
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Notification Bell Glass Button (42dp x 42dp)
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(CircleShape)
-                            .background(appColors.glassCardBg)
-                            .border(1.dp, appColors.glassBorder, CircleShape)
-                            .clickable { /* Notification Click */ },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        BadgedBox(
-                            badge = {
-                                Badge(containerColor = NeonRose, contentColor = Color.White) {
-                                    Text("1", fontSize = 10.sp)
-                                }
-                            }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Notifications,
-                                contentDescription = "Thông báo",
-                                tint = appColors.textPrimary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-
-                    // Add Task Button (42dp x 42dp)
                     Box(
                         modifier = Modifier
                             .size(42.dp)
@@ -151,223 +183,211 @@ fun HomeScreen(
                 }
             }
 
-            // Live Search Bar
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = { Text("Tìm công việc, lịch hẹn...", color = appColors.textSecondary, fontSize = 12.sp) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = EmeraldPrimary, modifier = Modifier.size(20.dp)) },
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = appColors.textPrimary,
-                    unfocusedTextColor = appColors.textPrimary,
-                    focusedBorderColor = EmeraldPrimary,
-                    unfocusedBorderColor = appColors.glassBorder,
-                    focusedContainerColor = appColors.glassCardBg,
-                    unfocusedContainerColor = appColors.glassCardBg
-                ),
-                shape = RoundedCornerShape(20.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp)
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Upcoming Task Banner ("CÔNG VIỆC SẮP TỚI")
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(appColors.glassCardBg)
-                    .border(1.dp, appColors.glassBorder, RoundedCornerShape(16.dp))
-                    .padding(12.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Schedule,
-                        contentDescription = null,
-                        tint = EmeraldPrimary,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "CÔNG VIỆC SẮP TỚI",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = appColors.textSecondary
-                        )
-                        Text(
-                            text = upcomingTask?.title ?: "⏰ Không còn việc sắp tới hôm nay",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
+            // -- SUMMARY CARDS ITEM --
+            item {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        CounterCard(
+                            title = "Tổng công việc",
+                            count = totalCount,
+                            isSelected = selectedStatusFilter == "ALL",
                             color = appColors.textPrimary,
-                            maxLines = 1
+                            onClick = { selectedStatusFilter = "ALL" }
+                        )
+                    }
+                    item {
+                        CounterCard(
+                            title = "Cần làm (TODO)",
+                            count = todoCount,
+                            isSelected = selectedStatusFilter == "TODO",
+                            color = StatusAmber,
+                            onClick = { selectedStatusFilter = "TODO" }
+                        )
+                    }
+                    item {
+                        CounterCard(
+                            title = "Đã qua (OVERDUE)",
+                            count = overdueCount,
+                            isSelected = false,
+                            color = StatusRose,
+                            onClick = {}
+                        )
+                    }
+                    item {
+                        CounterCard(
+                            title = "Đã hoàn thành",
+                            count = completedCount,
+                            isSelected = selectedStatusFilter == "COMPLETED",
+                            color = EmeraldPrimary,
+                            onClick = { selectedStatusFilter = "COMPLETED" }
+                        )
+                    }
+                    item {
+                        CounterCard(
+                            title = "Thói quen lặp lại",
+                            count = recurringCount,
+                            isSelected = selectedStatusFilter == "RECURRING",
+                            color = StatusCyan,
+                            onClick = { selectedStatusFilter = "RECURRING" }
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Workspaces Filter Bar (Balanced 38dp Height for Pills & Add Button)
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                items(workspaces) { ws ->
-                    val isSelected = ws.id == selectedWsId
-                    Box(
-                        modifier = Modifier
-                            .height(38.dp)
-                            .clip(RoundedCornerShape(19.dp))
-                            .background(
-                                if (isSelected) EmeraldPrimary else appColors.glassCardBg
+            // -- WORKSPACES FILTER ITEM --
+            item {
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    items(workspaces) { ws ->
+                        val isSelected = ws.id == selectedWsId
+                        Box(
+                            modifier = Modifier
+                                .height(36.dp)
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(if (isSelected) EmeraldPrimary else appColors.glassCardBg)
+                                .border(1.dp, if (isSelected) EmeraldPrimary else appColors.glassBorder, RoundedCornerShape(18.dp))
+                                .clickable { taskViewModel.selectWorkspace(ws.id) }
+                                .padding(horizontal = 14.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = ws.name,
+                                color = if (isSelected) Color.White else appColors.textSecondary,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
                             )
-                            .border(
-                                width = 1.dp,
-                                color = if (isSelected) EmeraldPrimary else appColors.glassBorder,
-                                shape = RoundedCornerShape(19.dp)
-                            )
-                            .clickable { taskViewModel.selectWorkspace(ws.id) }
-                            .padding(horizontal = 16.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = ws.name,
-                            color = if (isSelected) Color.White else appColors.textSecondary,
-                            fontSize = 13.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
-                        )
+                        }
                     }
-                }
 
-                item {
-                    // Add Workspace Button - Matching 38dp x 38dp Height!
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(EmeraldPrimary.copy(alpha = 0.2f))
-                            .border(1.dp, EmeraldPrimary.copy(alpha = 0.5f), CircleShape)
-                            .clickable { showAddWsDialog = true },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Thêm Workspace",
-                            tint = EmeraldPrimary,
-                            modifier = Modifier.size(20.dp)
-                        )
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(EmeraldPrimary.copy(alpha = 0.2f))
+                                .border(1.dp, EmeraldPrimary.copy(alpha = 0.5f), CircleShape)
+                                .clickable { showAddWsDialog = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Thêm Workspace", tint = EmeraldPrimary, modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Task List + Quick Stats Footer inside LazyColumn (Zero Overlap!)
-            if (isLoading) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(color = EmeraldPrimary)
-                }
-            } else if (filteredTasks.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = if (searchQuery.isNotBlank()) "Không tìm thấy công việc phù hợp" else "Chưa có công việc nào trong không gian này",
-                        color = appColors.textSecondary,
-                        fontSize = 13.sp
-                    )
-                }
-            } else {
-                LazyColumn(
+            // -- SEARCH BAR ITEM --
+            item {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Tìm theo tên công việc...", color = appColors.textSecondary, fontSize = 12.sp) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = EmeraldPrimary, modifier = Modifier.size(18.dp)) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = appColors.textPrimary,
+                        unfocusedTextColor = appColors.textPrimary,
+                        focusedBorderColor = EmeraldPrimary,
+                        unfocusedBorderColor = appColors.glassBorder,
+                        focusedContainerColor = appColors.glassCardBg,
+                        unfocusedContainerColor = appColors.glassCardBg
+                    ),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(bottom = 90.dp)
-                ) {
-                    items(filteredTasks) { task ->
-                        TaskCardItem(
-                            task = task,
-                            onToggleComplete = { taskViewModel.toggleTaskCompleted(task) },
-                            onEdit = { editingTask = task },
-                            onDelete = { task.id?.let { taskViewModel.deleteTask(it) } }
+                        .height(52.dp)
+                )
+            }
+
+            // -- LOADING OR EMPTY STATE --
+            if (isLoading && !isRefreshing) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = EmeraldPrimary)
+                    }
+                }
+            } else if (filteredTasks.isEmpty()) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = if (searchQuery.isNotBlank()) "Không tìm thấy công việc phù hợp" else "Chưa có công việc nào trong danh mục này",
+                            color = appColors.textSecondary,
+                            fontSize = 13.sp
                         )
                     }
+                }
+            } else {
+                // -- TASK LIST ITEMS --
+                items(filteredTasks) { task ->
+                    TaskCardItem(
+                        task = task,
+                        onToggleComplete = { taskViewModel.toggleTaskCompleted(task) },
+                        onEdit = { editingTask = task },
+                        onDelete = { task.id?.let { taskViewModel.deleteTask(it) } }
+                    )
+                }
 
-                    // Spacer between task list and stats footer
-                    item {
-                        Spacer(modifier = Modifier.height(6.dp))
-                    }
-
-                    // Quick Stats Footer Card
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                // -- FOOTER STATS ITEM --
+                item {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(appColors.glassCardBg)
+                                .border(1.dp, appColors.glassBorder, RoundedCornerShape(14.dp))
+                                .padding(10.dp)
                         ) {
-                            // Stat 1: Weekly tasks
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(appColors.glassCardBg)
-                                    .border(1.dp, appColors.glassBorder, RoundedCornerShape(14.dp))
-                                    .padding(10.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = EmeraldPrimary, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Column {
-                                        Text("Tuần này", fontSize = 10.sp, color = appColors.textSecondary)
-                                        Text("${report?.totalTasks ?: tasks.size} việc", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = appColors.textPrimary)
-                                    }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = EmeraldPrimary, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Column {
+                                    Text("Tuần này", fontSize = 10.sp, color = appColors.textSecondary)
+                                    Text("${report?.totalTasks ?: tasks.size} việc", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = appColors.textPrimary)
                                 }
                             }
+                        }
 
-                            // Stat 2: Focus hours
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(appColors.glassCardBg)
-                                    .border(1.dp, appColors.glassBorder, RoundedCornerShape(14.dp))
-                                    .padding(10.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.ElectricBolt, contentDescription = null, tint = LimeHighlight, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Column {
-                                        Text("Tập trung", fontSize = 10.sp, color = appColors.textSecondary)
-                                        Text("${(report?.totalFocusMinutes ?: 0) / 60} giờ", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = appColors.textPrimary)
-                                    }
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(appColors.glassCardBg)
+                                .border(1.dp, appColors.glassBorder, RoundedCornerShape(14.dp))
+                                .padding(10.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.ElectricBolt, contentDescription = null, tint = StatusAmber, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Column {
+                                    Text("Tập trung", fontSize = 10.sp, color = appColors.textSecondary)
+                                    Text("${(report?.totalFocusMinutes ?: 0) / 60} giờ", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = appColors.textPrimary)
                                 }
                             }
+                        }
 
-                            // Stat 3: AI free slots
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(appColors.glassCardBg)
-                                    .border(1.dp, appColors.glassBorder, RoundedCornerShape(14.dp))
-                                    .padding(10.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Column {
-                                        Text("Giờ trống AI", fontSize = 10.sp, color = appColors.textSecondary)
-                                        Text("56 slot", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = appColors.textPrimary)
-                                    }
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(appColors.glassCardBg)
+                                .border(1.dp, appColors.glassBorder, RoundedCornerShape(14.dp))
+                                .padding(10.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = EmeraldPrimary, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Column {
+                                    Text("Giờ trống AI", fontSize = 10.sp, color = appColors.textSecondary)
+                                    Text("56 slot", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = appColors.textPrimary)
                                 }
                             }
                         }
@@ -376,7 +396,7 @@ fun HomeScreen(
             }
         }
 
-        // Add Task Glass Dialog
+        // Dialogs
         if (showAddDialog) {
             AddTaskDialog(
                 onDismiss = { showAddDialog = false },
@@ -387,7 +407,6 @@ fun HomeScreen(
             )
         }
 
-        // Edit Task Glass Dialog
         if (editingTask != null) {
             EditTaskDialog(
                 task = editingTask!!,
@@ -401,7 +420,6 @@ fun HomeScreen(
             )
         }
 
-        // Add Workspace Dialog
         if (showAddWsDialog) {
             AddWorkspaceDialog(
                 onDismiss = { showAddWsDialog = false },
@@ -415,6 +433,51 @@ fun HomeScreen(
 }
 
 @Composable
+fun CounterCard(
+    title: String,
+    count: Int,
+    isSelected: Boolean,
+    color: Color,
+    onClick: () -> Unit
+) {
+    val appColors = LocalAppColors.current
+
+    Box(
+        modifier = Modifier
+            .width(135.dp)
+            .height(64.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (isSelected) EmeraldPrimary.copy(alpha = 0.15f) else appColors.glassCardBg)
+            .border(
+                width = if (isSelected) 1.5.dp else 1.dp,
+                color = if (isSelected) EmeraldPrimary else appColors.glassBorder,
+                shape = RoundedCornerShape(14.dp)
+            )
+            .clickable { onClick() }
+            .padding(10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = title,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = appColors.textSecondary,
+                maxLines = 1
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "$count",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = if (isSelected) EmeraldPrimary else color
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
 fun TaskCardItem(
     task: TaskDto,
     onToggleComplete: () -> Unit,
@@ -425,10 +488,17 @@ fun TaskCardItem(
     val appColors = LocalAppColors.current
 
     val priorityColor = when (task.priority) {
-        "URGENT" -> NeonRose
-        "HIGH" -> NeonAmber
+        "URGENT" -> StatusRose
+        "HIGH" -> StatusAmber
         "MEDIUM" -> EmeraldPrimary
-        else -> MintAccent
+        else -> StatusCyan
+    }
+
+    val priorityText = when (task.priority) {
+        "URGENT" -> "Gấp"
+        "HIGH" -> "Cao"
+        "MEDIUM" -> "Trung bình"
+        else -> "Thấp"
     }
 
     val quadrantText = when (task.eisenhowerQuadrant) {
@@ -439,15 +509,24 @@ fun TaskCardItem(
         else -> "Q2: Lên lịch"
     }
 
+    // Clean formatted time string in DD/MM/YYYY
+    val timeLabel = remember(task.startTime, task.estimatedDurationMinutes) {
+        if (!task.startTime.isNullOrBlank()) {
+            formatToDdMmYyyy(task.startTime)
+        } else {
+            "Thời lượng: ${task.estimatedDurationMinutes ?: 30} phút"
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(16.dp))
             .background(appColors.glassCardBg)
             .border(
                 width = 1.dp,
                 color = appColors.glassBorder,
-                shape = RoundedCornerShape(18.dp)
+                shape = RoundedCornerShape(16.dp)
             )
             .padding(14.dp)
     ) {
@@ -469,7 +548,7 @@ fun TaskCardItem(
                 )
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(10.dp))
 
             // Task Content
             Column(
@@ -484,7 +563,7 @@ fun TaskCardItem(
                 )
 
                 if (!task.description.isNullOrEmpty()) {
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
                     Text(
                         text = task.description,
                         fontSize = 12.sp,
@@ -493,72 +572,83 @@ fun TaskCardItem(
                     )
                 }
 
+                // Time Row (Formatted in DD/MM/YYYY!)
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.AccessTime,
+                        contentDescription = null,
+                        tint = appColors.textSecondary,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = timeLabel,
+                        fontSize = 11.sp,
+                        color = appColors.textSecondary
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Badges Wrap Row
-                Row(
+                // FlowRow for Badges
+                FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Priority Badge
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .background(priorityColor.copy(alpha = 0.2f))
+                            .background(if (isCompleted) EmeraldPrimary.copy(alpha = 0.15f) else StatusAmber.copy(alpha = 0.15f))
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(
-                            text = task.priority ?: "MEDIUM",
+                            text = if (isCompleted) "✓ Hoàn thành" else "Cần làm",
+                            color = if (isCompleted) EmeraldPrimary else StatusAmber,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(priorityColor.copy(alpha = 0.15f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = priorityText,
                             color = priorityColor,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
 
-                    // Eisenhower Badge
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .background(EmeraldPrimary.copy(alpha = 0.2f))
+                            .background(EmeraldPrimary.copy(alpha = 0.15f))
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(
                             text = quadrantText,
-                            color = MintAccent,
+                            color = EmeraldPrimary,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
 
-                    // Recurring Tag
                     if (task.isRecurring == true) {
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(NeonCyan.copy(alpha = 0.2f))
+                                .background(StatusCyan.copy(alpha = 0.15f))
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text(
-                                text = "🔁 Lặp lại",
-                                color = NeonCyan,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-
-                    // Privacy Lock Tag
-                    if (task.isLocked == true) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(NeonAmber.copy(alpha = 0.2f))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = "🔒 Riêng tư",
-                                color = NeonAmber,
+                                text = "🔥 1 ngày chuỗi",
+                                color = StatusCyan,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -569,7 +659,7 @@ fun TaskCardItem(
 
             Spacer(modifier = Modifier.width(6.dp))
 
-            // Action Buttons Row (Edit & Delete)
+            // Action Buttons
             Row(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -581,7 +671,7 @@ fun TaskCardItem(
                     Icon(
                         imageVector = Icons.Default.Edit,
                         contentDescription = "Chỉnh sửa",
-                        tint = EmeraldLight
+                        tint = EmeraldPrimary
                     )
                 }
 
@@ -592,7 +682,7 @@ fun TaskCardItem(
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = "Xóa",
-                        tint = NeonRose.copy(alpha = 0.8f)
+                        tint = StatusRose
                     )
                 }
             }
@@ -662,7 +752,6 @@ fun EditTaskDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Priority Selection
                 Text(text = "Mức độ ưu tiên:", fontSize = 12.sp, color = appColors.textSecondary)
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
@@ -692,7 +781,6 @@ fun EditTaskDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Eisenhower Quadrant Selection
                 Text(text = "Ma trận Eisenhower:", fontSize = 12.sp, color = appColors.textSecondary)
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
@@ -722,7 +810,6 @@ fun EditTaskDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Switches Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -863,13 +950,13 @@ fun AddWorkspaceDialog(
         onDismissRequest = onDismiss,
         containerColor = appColors.glassCardBg,
         title = {
-            Text(text = "Tạo Không gian mới", color = appColors.textPrimary, fontWeight = FontWeight.Bold)
+            Text(text = "Tạo không gian mới", color = appColors.textPrimary, fontWeight = FontWeight.Bold)
         },
         text = {
             OutlinedTextField(
                 value = wsName,
                 onValueChange = { wsName = it },
-                label = { Text("Tên Không gian (VD: Học tập, Dự án)", color = appColors.textSecondary) },
+                label = { Text("Tên không gian (VD: Học tập, Dự án)", color = appColors.textSecondary) },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = appColors.textPrimary,
                     unfocusedTextColor = appColors.textPrimary,

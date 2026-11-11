@@ -25,12 +25,11 @@ import com.hhpc.smarttask.ui.theme.LocalAppColors
 
 private fun getRouteIndex(route: String?): Int {
     return when (route) {
-        BottomNavItem.Tasks.route -> 0
-        BottomNavItem.Eisenhower.route -> 1
-        BottomNavItem.Calendar.route -> 2
-        BottomNavItem.AiAssistant.route -> 3
-        BottomNavItem.Analytics.route -> 4
-        BottomNavItem.Settings.route -> 5
+        BottomNavItem.Calendar.route -> 0
+        BottomNavItem.Tasks.route -> 1
+        BottomNavItem.AiAssistant.route -> 2
+        BottomNavItem.Notifications.route -> 3
+        BottomNavItem.Settings.route -> 4
         else -> 0
     }
 }
@@ -48,11 +47,10 @@ fun SmartTaskNavGraph(
     val currentRoute = navBackStackEntry?.destination?.route
 
     val mainItems = listOf(
-        BottomNavItem.Tasks,
-        BottomNavItem.Eisenhower,
         BottomNavItem.Calendar,
+        BottomNavItem.Tasks,
         BottomNavItem.AiAssistant,
-        BottomNavItem.Analytics,
+        BottomNavItem.Notifications,
         BottomNavItem.Settings
     )
 
@@ -178,24 +176,20 @@ fun SmartTaskNavGraph(
                     )
                 }
 
-                composable(BottomNavItem.Tasks.route) {
-                    HomeScreen(taskViewModel = taskViewModel)
-                }
-
-                composable(BottomNavItem.Eisenhower.route) {
-                    EisenhowerScreen(taskViewModel = taskViewModel)
-                }
-
                 composable(BottomNavItem.Calendar.route) {
                     CalendarScreen(taskViewModel = taskViewModel)
                 }
 
-                composable(BottomNavItem.Analytics.route) {
-                    AnalyticsScreen(taskViewModel = taskViewModel)
+                composable(BottomNavItem.Tasks.route) {
+                    HomeScreen(taskViewModel = taskViewModel)
                 }
 
                 composable(BottomNavItem.AiAssistant.route) {
                     AiAssistantScreen(taskViewModel = taskViewModel)
+                }
+
+                composable(BottomNavItem.Notifications.route) {
+                    NotificationsScreen(taskViewModel = taskViewModel)
                 }
 
                 composable(BottomNavItem.Settings.route) {

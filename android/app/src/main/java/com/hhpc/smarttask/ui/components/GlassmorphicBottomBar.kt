@@ -13,10 +13,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.FormatListBulleted
-import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -27,21 +26,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hhpc.smarttask.ui.theme.*
 
 sealed class BottomNavItem(val route: String, val title: String, val icon: ImageVector) {
-    object Tasks : BottomNavItem("tasks", "Công việc", Icons.Default.FormatListBulleted)
-    object Eisenhower : BottomNavItem("eisenhower", "Ma trận", Icons.Default.GridView)
-    object Calendar : BottomNavItem("calendar", "Lịch trình", Icons.Default.DateRange)
-    object AiAssistant : BottomNavItem("ai", "Trợ lý AI", Icons.Default.AutoAwesome)
-    object Analytics : BottomNavItem("analytics", "Thống kê", Icons.Default.BarChart)
-    object Settings : BottomNavItem("settings", "Cài đặt", Icons.Default.Person)
+    object Calendar : BottomNavItem("calendar", "Lịch trình công việc", Icons.Default.DateRange)
+    object Tasks : BottomNavItem("tasks", "Quản lý công việc", Icons.Default.FormatListBulleted)
+    object AiAssistant : BottomNavItem("ai", "Trợ lý AI Gemini", Icons.Default.AutoAwesome)
+    object Notifications : BottomNavItem("notifications", "Thông báo & nhắc hẹn", Icons.Default.Notifications)
+    object Settings : BottomNavItem("settings", "Tài khoản & thiết lập", Icons.Default.Person)
 }
 
 @Composable
@@ -50,14 +48,13 @@ fun GlassmorphicBottomBar(
     onItemSelected: (BottomNavItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // 6 Items with AI Assistant in the EXACT CENTER (Index 3)
+    // Exactly 5 Items with AI Assistant in the EXACT CENTER (Index 2)
     val items = listOf(
-        BottomNavItem.Tasks,
-        BottomNavItem.Eisenhower,
-        BottomNavItem.Calendar,
-        BottomNavItem.AiAssistant, // CENTER HERO BUTTON
-        BottomNavItem.Analytics,
-        BottomNavItem.Settings
+        BottomNavItem.Calendar,       // Index 0: Lịch trình công việc
+        BottomNavItem.Tasks,          // Index 1: Quản lý công việc
+        BottomNavItem.AiAssistant,    // Index 2: Trợ lý AI Gemini (CENTER HERO EMERALD BUTTON)
+        BottomNavItem.Notifications,  // Index 3: Thông báo & nhắc hẹn
+        BottomNavItem.Settings        // Index 4: Tài khoản & thiết lập
     )
 
     val appColors = LocalAppColors.current
@@ -65,52 +62,36 @@ fun GlassmorphicBottomBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            .windowInsetsPadding(WindowInsets.navigationBars)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center
     ) {
-        // Floating Pill Glass Capsule
+        // Sleek Minimalist Floating Navigation Pill
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(72.dp)
-                .clip(RoundedCornerShape(36.dp))
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            if (appColors.isDark) Color(0xF0112A22) else Color(0xFFFFFFFF),
-                            if (appColors.isDark) Color(0xEE081C15) else Color(0xFFF5FCF8)
-                        )
-                    )
-                )
-                .border(
-                    width = 1.dp,
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            appColors.glassBorderActive,
-                            appColors.glassBorder
-                        )
-                    ),
-                    shape = RoundedCornerShape(36.dp)
-                )
+                .height(74.dp)
+                .clip(RoundedCornerShape(37.dp))
+                .background(appColors.glassCardBg)
+                .border(1.dp, appColors.glassBorder, RoundedCornerShape(37.dp))
                 .padding(horizontal = 4.dp),
             contentAlignment = Alignment.Center
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 items.forEach { item ->
                     val isSelected = currentRoute == item.route
                     val isCenterAi = item == BottomNavItem.AiAssistant
 
-                    val iconScale by animateFloatAsState(
-                        targetValue = if (isSelected) 1.2f else 1.0f,
+                    val springScale by animateFloatAsState(
+                        targetValue = if (isSelected) 1.1f else 1.0f,
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioMediumBouncy,
                             stiffness = Spring.StiffnessLow
                         ),
-                        label = "scale"
+                        label = "springScale"
                     )
 
                     val activeColor by animateColorAsState(
@@ -118,104 +99,77 @@ fun GlassmorphicBottomBar(
                         label = "color"
                     )
 
-                    if (isCenterAi) {
-                        // SPECIAL HERO CENTER FLOATING BUTTON FOR AI
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                            modifier = Modifier
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    onItemSelected(item)
-                                }
-                                .padding(horizontal = 4.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(46.dp)
-                                    .scale(iconScale)
-                                    .clip(CircleShape)
-                                    .background(
-                                        brush = Brush.linearGradient(
-                                            colors = listOf(
-                                                EmeraldPrimary,
-                                                MintAccent
-                                            )
-                                        )
-                                    )
-                                    .border(2.dp, Color.White.copy(alpha = 0.9f), CircleShape),
-                                contentAlignment = Alignment.Center
+                    // Each item gets EXACTLY weight(1f) -> 20% width for perfect equal spacing!
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
                             ) {
-                                Icon(
-                                    imageVector = item.icon,
-                                    contentDescription = item.title,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(24.dp)
+                                onItemSelected(item)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isCenterAi) {
+                            // HERO EMERALD GREEN CIRCLE BUTTON IN THE EXACT CENTER
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .scale(springScale)
+                                        .clip(CircleShape)
+                                        .background(EmeraldPrimary),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = item.icon,
+                                        contentDescription = item.title,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(2.dp))
+
+                                Text(
+                                    text = item.title,
+                                    color = if (isSelected) EmeraldPrimary else appColors.textSecondary,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1
                                 )
                             }
-
-                            Spacer(modifier = Modifier.height(2.dp))
-
-                            Text(
-                                text = item.title,
-                                color = if (isSelected) EmeraldPrimary else appColors.textSecondary,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    } else {
-                        // STANDARD NAV ITEMS
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    onItemSelected(item)
-                                }
-                                .padding(vertical = 4.dp, horizontal = 6.dp)
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center
+                        } else {
+                            // STANDARD TAB WITH EQUAL WEIGHT & iOS SPRING ANIMATION
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                                modifier = Modifier.scale(springScale)
                             ) {
-                                if (isSelected) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(32.dp)
-                                            .clip(CircleShape)
-                                            .background(
-                                                Brush.radialGradient(
-                                                    colors = listOf(
-                                                        EmeraldPrimary.copy(alpha = 0.25f),
-                                                        Color.Transparent
-                                                    )
-                                                )
-                                            )
-                                    )
-                                }
                                 Icon(
                                     imageVector = item.icon,
                                     contentDescription = item.title,
                                     tint = activeColor,
-                                    modifier = Modifier
-                                        .size(20.dp)
-                                        .scale(iconScale)
+                                    modifier = Modifier.size(22.dp)
+                                )
+
+                                Spacer(modifier = Modifier.height(2.dp))
+
+                                Text(
+                                    text = item.title,
+                                    color = activeColor,
+                                    fontSize = 9.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1
                                 )
                             }
-
-                            Spacer(modifier = Modifier.height(2.dp))
-
-                            Text(
-                                text = item.title,
-                                color = activeColor,
-                                fontSize = 9.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
                         }
                     }
                 }

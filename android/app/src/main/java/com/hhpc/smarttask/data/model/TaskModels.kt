@@ -99,17 +99,32 @@ data class AutoScheduleResponse(
 data class UserPreferenceDto(
     val id: Long? = null,
     val userId: Long? = null,
+    val fullName: String? = "Nguyễn Hoàng Hảo",
+    val phone: String? = "0901234567",
+    val language: String? = "Tiếng Việt",
     val workStartTime: String? = "08:00",
     val workEndTime: String? = "18:00",
-    val workDays: String? = "MON,TUE,WED,THU,FRI",
+    val lunchBreakStart: String? = "12:00",
+    val lunchBreakEnd: String? = "13:00",
+    val workDays: String? = "T2,T3,T4,T5,T6",
     val bufferMinutes: Int? = 15,
+    val allowWeekendTasks: Boolean? = true,
     val peakProductivityTime: String? = "MORNING", // MORNING, AFTERNOON, EVENING
     val autoReschedule: Boolean? = true,
-    val timeZone: String? = "Asia/Ho_Chi_Minh",
+    val aiAutoFindSlot: Boolean? = true,
+    val aiAlwaysAskBeforeChange: Boolean? = true,
+    val aiAllowSplitLongTasks: Boolean? = true,
+    val aiAutoMoveFixedTasks: Boolean? = false,
+    val timeZone: String? = "(GMT+07:00) Hồ Chí Minh",
     val theme: String? = "LIGHT",
     val backgroundUrl: String? = null,
     val backgroundType: String? = "NONE",
-    val overlayDarkness: Int? = 50
+    val overlayDarkness: Int? = 50,
+    val reminderMinutesBefore: Int? = 15,
+    val dndStartTime: String? = "22:00",
+    val dndEndTime: String? = "07:00",
+    val enableDeviceNotifications: Boolean? = true,
+    val enableMorningSummaryEmail: Boolean? = false
 )
 
 data class ProductivityReportDto(

@@ -13,9 +13,11 @@ import com.hhpc.smarttask.data.repository.ProductivityRepository
 import com.hhpc.smarttask.data.repository.TaskRepository
 import com.hhpc.smarttask.data.repository.UserPreferenceRepository
 import com.hhpc.smarttask.data.repository.WorkspaceRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class TaskViewModel(application: Application) : AndroidViewModel(application) {
@@ -55,18 +57,66 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         loadData()
+        startAutoRefreshLoop()
+    }
+
+    private fun startAutoRefreshLoop() {
+        viewModelScope.launch {
+            while (isActive) {
+                delay(5000L) // Auto-refresh in background every 5 seconds
+                try {
+                    refreshDataSilently()
+                } catch (e: Exception) {
+                    // Ignore background loop error
+                }
+            }
+        }
     }
 
     fun loadData() {
         viewModelScope.launch {
-            _isLoading.value = true
-            loadWorkspaces()
-            loadCategories()
-            loadTasks()
-            loadEisenhower()
-            loadProductivityReport()
-            loadUserPreferences()
+            refreshData()
+        }
+    }
+
+    suspend fun refreshData() {
+        _isLoading.value = true
+        try {
+            refreshDataSilently()
+        } catch (e: Exception) {
+            // Ignore fallback
+        } finally {
             _isLoading.value = false
+        }
+    }
+
+    private suspend fun refreshDataSilently() {
+        val resWs = workspaceRepository.getWorkspaces()
+        resWs.onSuccess { list ->
+            _workspaces.value = list
+            if (_selectedWorkspaceId.value == null && list.isNotEmpty()) {
+                _selectedWorkspaceId.value = list.first().id
+            }
+        }
+
+        val resTasks = taskRepository.getTasks(_selectedWorkspaceId.value)
+        resTasks.onSuccess { list ->
+            _tasks.value = list
+        }
+
+        val resEisenhower = taskRepository.getEisenhowerMatrix(_selectedWorkspaceId.value)
+        resEisenhower.onSuccess { map ->
+            _eisenhowerMap.value = map
+        }
+
+        val resReport = productivityRepository.getDailyReport()
+        resReport.onSuccess { report ->
+            _productivityReport.value = report
+        }
+
+        val resPref = userPreferenceRepository.getPreferences()
+        resPref.onSuccess { pref ->
+            _userPreferences.value = pref
         }
     }
 
