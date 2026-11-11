@@ -1,6 +1,6 @@
 package com.taskmanager.security;
 
-import com.taskmanager.entity.User;
+import com.taskmanager.entity.NguoiDung;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -21,7 +21,7 @@ class JwtTokenServiceTest {
     @Test
     void issuesAndReadsSignedUserId() {
         JwtTokenService service = new JwtTokenService(SECRET, 60_000L);
-        User user = User.builder().id(42L).email("user@example.com").build();
+        NguoiDung user = NguoiDung.builder().id(42L).email("user@example.com").build();
 
         String token = service.issueToken(user);
 

@@ -1,7 +1,7 @@
 package com.taskmanager.service;
 
 import com.taskmanager.dto.TaskDto;
-import com.taskmanager.entity.Task;
+import com.taskmanager.entity.CongViec;
 import com.taskmanager.repository.CategoryRepository;
 import com.taskmanager.repository.SubtaskRepository;
 import com.taskmanager.repository.TaskRepository;
@@ -36,7 +36,7 @@ class TaskServiceValidationTest {
         taskService = new TaskService(taskRepository, timeBlockRepository, categoryRepository,
                 subtaskRepository, workspaceRepository);
         when(taskRepository.findById(7L))
-                .thenReturn(Optional.of(Task.builder().id(7L).userId(3L).title("Task").status("TODO").build()));
+                .thenReturn(Optional.of(CongViec.builder().id(7L).userId(3L).title("Task").status("TODO").build()));
     }
 
     @Test

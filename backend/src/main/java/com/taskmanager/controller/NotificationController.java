@@ -1,6 +1,6 @@
 package com.taskmanager.controller;
 
-import com.taskmanager.entity.Notification;
+import com.taskmanager.entity.ThongBao;
 import com.taskmanager.repository.NotificationRepository;
 import com.taskmanager.repository.TaskRepository;
 import com.taskmanager.service.NotificationDecisionService;
@@ -30,9 +30,9 @@ public class NotificationController {
      * Thao tác GET là idempotent, chỉ đọc dữ liệu từ CSDL, không gây side-effect tạo lại thông báo
      */
     @GetMapping
-    public ResponseEntity<List<Notification>> getNotifications(HttpServletRequest request) {
+    public ResponseEntity<List<ThongBao>> getNotifications(HttpServletRequest request) {
         Long userId = userResolver.resolveUserId(request);
-        List<Notification> list = notificationRepository.findActiveByUserId(userId);
+        List<ThongBao> list = notificationRepository.findActiveByUserId(userId);
         return ResponseEntity.ok(list);
     }
 
@@ -40,9 +40,9 @@ public class NotificationController {
      * Kích hoạt chạy thuật toán quyết định thông báo chủ động
      */
     @PostMapping("/evaluate")
-    public ResponseEntity<List<Notification>> evaluateNotifications(HttpServletRequest request) {
+    public ResponseEntity<List<ThongBao>> evaluateNotifications(HttpServletRequest request) {
         Long userId = userResolver.resolveUserId(request);
-        List<Notification> list = notificationDecisionService.evaluateAndGenerateNotifications(userId);
+        List<ThongBao> list = notificationDecisionService.evaluateAndGenerateNotifications(userId);
         return ResponseEntity.ok(list);
     }
 
@@ -67,7 +67,7 @@ public class NotificationController {
                 .map(n -> {
                     n.setIsRead(true);
                     n.setUpdatedAt(OffsetDateTime.now());
-                    Notification updated = notificationRepository.save(n);
+                    ThongBao updated = notificationRepository.save(n);
                     return ResponseEntity.ok(updated);
                 })
                 .orElse(ResponseEntity.notFound().build());
@@ -117,7 +117,7 @@ public class NotificationController {
      * Tạo thông báo mới vào CSDL
      */
     @PostMapping
-    public ResponseEntity<Notification> createNotification(@RequestBody Map<String, Object> body, HttpServletRequest request) {
+    public ResponseEntity<ThongBao> createNotification(@RequestBody Map<String, Object> body, HttpServletRequest request) {
         Long userId = userResolver.resolveUserId(request);
         String title = (String) body.getOrDefault("title", "Thông báo mới");
         String message = (String) body.getOrDefault("message", "");
@@ -127,7 +127,7 @@ public class NotificationController {
             throw new com.taskmanager.exception.ResourceNotFoundException("Không tìm thấy công việc #" + taskId);
         }
 
-        Notification notification = Notification.builder()
+        ThongBao notification = ThongBao.builder()
                 .userId(userId)
                 .taskId(taskId)
                 .title(title)
@@ -139,7 +139,7 @@ public class NotificationController {
                 .updatedAt(OffsetDateTime.now())
                 .build();
 
-        Notification saved = notificationRepository.save(notification);
+        ThongBao saved = notificationRepository.save(notification);
         return ResponseEntity.ok(saved);
     }
 }

@@ -1,6 +1,6 @@
 package com.taskmanager.security;
 
-import com.taskmanager.entity.User;
+import com.taskmanager.entity.NguoiDung;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -32,7 +32,7 @@ public class JwtTokenService {
         this.expirationMs = expirationMs;
     }
 
-    public String issueToken(User user) {
+    public String issueToken(NguoiDung user) {
         Instant now = Instant.now();
         return Jwts.builder()
                 .subject(user.getId().toString())

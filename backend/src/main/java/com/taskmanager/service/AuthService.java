@@ -1,9 +1,9 @@
 package com.taskmanager.service;
 
 import com.taskmanager.dto.AuthDto;
-import com.taskmanager.entity.MediaHistory;
-import com.taskmanager.entity.Role;
-import com.taskmanager.entity.User;
+import com.taskmanager.entity.LichSuMedia;
+import com.taskmanager.entity.VaiTro;
+import com.taskmanager.entity.NguoiDung;
 import com.taskmanager.exception.ResourceNotFoundException;
 import com.taskmanager.repository.MediaHistoryRepository;
 import com.taskmanager.repository.RoleRepository;
@@ -54,7 +54,7 @@ public class AuthService {
         }
 
         // Tìm kiếm người dùng theo email (hỗ trợ phân biệt hoa thường và không phân biệt)
-        User user = userRepository.findByEmailIgnoreCase(trimmedEmail)
+        NguoiDung user = userRepository.findByEmailIgnoreCase(trimmedEmail)
                 .orElseGet(() -> userRepository.findByEmail(trimmedEmail)
                         .orElseThrow(() -> new BadCredentialsException("Email hoặc mật khẩu không chính xác.")));
 
@@ -115,10 +115,10 @@ public class AuthService {
             throw new IllegalArgumentException("Địa chỉ email này đã được sử dụng. Vui lòng đăng nhập hoặc dùng email khác.");
         }
 
-        Role userRole = roleRepository.findByName("ROLE_USER")
-                .orElseGet(() -> roleRepository.save(Role.builder().name("ROLE_USER").description("User").build()));
+        VaiTro userRole = roleRepository.findByName("ROLE_USER")
+                .orElseGet(() -> roleRepository.save(VaiTro.builder().name("ROLE_USER").description("User").build()));
 
-        User newUser = User.builder()
+        NguoiDung newUser = NguoiDung.builder()
                 .email(trimmedEmail)
                 .fullName(rawFullName.trim())
                 .passwordHash(passwordEncoder.encode(rawPassword))
@@ -127,7 +127,7 @@ public class AuthService {
                 .isEmailVerified(true)
                 .build();
 
-        User saved = userRepository.save(newUser);
+        NguoiDung saved = userRepository.save(newUser);
 
         return AuthDto.AuthResponse.builder()
                 .token(jwtTokenService.issueToken(saved))
@@ -140,7 +140,7 @@ public class AuthService {
     }
 
     public void changePassword(Long userId, AuthDto.ChangePasswordRequest request) {
-        User user = userRepository.findById(userId)
+        NguoiDung user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thông tin tài khoản người dùng"));
 
         if (request.getCurrentPassword() == null || !passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
@@ -165,7 +165,7 @@ public class AuthService {
         if (password == null || password.isEmpty()) {
             throw new IllegalArgumentException("Vui lòng nhập mật khẩu");
         }
-        User user = userRepository.findById(userId)
+        NguoiDung user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thông tin tài khoản người dùng"));
         if (!passwordEncoder.matches(password, user.getPasswordHash())) {
             throw new BadCredentialsException("Mật khẩu không chính xác. Vui lòng kiểm tra lại!");
@@ -173,7 +173,7 @@ public class AuthService {
     }
 
     public AuthDto.AuthResponse updateProfile(Long userId, AuthDto.UpdateProfileRequest request) {
-        User user = userRepository.findById(userId)
+        NguoiDung user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thông tin tài khoản người dùng"));
 
         if (request.getFullName() != null && !request.getFullName().trim().isEmpty()) {
@@ -187,7 +187,7 @@ public class AuthService {
             user.setAvatarUrl(trimmedAvatar.isEmpty() ? null : trimmedAvatar);
         }
         user.setUpdatedAt(java.time.OffsetDateTime.now());
-        User saved = userRepository.save(user);
+        NguoiDung saved = userRepository.save(user);
 
         String primaryRole = saved.getRoles().stream()
                 .anyMatch(r -> "ROLE_ADMIN".equals(r.getName())) ? "Quản trị viên" : "Người dùng";
@@ -203,7 +203,7 @@ public class AuthService {
     }
 
     public AuthDto.AuthResponse getProfile(Long userId) {
-        User user = userRepository.findById(userId)
+        NguoiDung user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thông tin tài khoản"));
 
         String primaryRole = user.getRoles().stream()
@@ -234,7 +234,7 @@ public class AuthService {
             throw new IllegalArgumentException("Không đọc được tệp ảnh tải lên.", e);
         }
 
-        User user = userRepository.findById(userId)
+        NguoiDung user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thông tin tài khoản người dùng"));
 
         try {
@@ -258,7 +258,7 @@ public class AuthService {
 
             // Lưu lịch sử media vào CSDL để qua máy khác vẫn đồng bộ
             try {
-                mediaHistoryRepository.save(MediaHistory.builder()
+                mediaHistoryRepository.save(LichSuMedia.builder()
                         .userId(userId)
                         .mediaType("AVATAR")
                         .url(publicUrl)

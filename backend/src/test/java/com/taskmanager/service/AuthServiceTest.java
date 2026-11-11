@@ -1,8 +1,8 @@
 package com.taskmanager.service;
 
 import com.taskmanager.dto.AuthDto;
-import com.taskmanager.entity.Role;
-import com.taskmanager.entity.User;
+import com.taskmanager.entity.NguoiDung;
+import com.taskmanager.entity.VaiTro;
 import com.taskmanager.repository.RoleRepository;
 import com.taskmanager.repository.UserRepository;
 import com.taskmanager.security.JwtTokenService;
@@ -40,12 +40,12 @@ class AuthServiceTest {
     @InjectMocks
     private AuthService authService;
 
-    private User sampleUser;
+    private NguoiDung sampleUser;
 
     @BeforeEach
     void setUp() {
-        Role role = Role.builder().id(1).name("ROLE_USER").build();
-        sampleUser = User.builder()
+        VaiTro role = VaiTro.builder().id(1).name("ROLE_USER").build();
+        sampleUser = NguoiDung.builder()
                 .id(1L)
                 .email("test@example.com")
                 .fullName("Test User")

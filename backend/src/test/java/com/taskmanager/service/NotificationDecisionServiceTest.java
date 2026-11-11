@@ -1,7 +1,7 @@
 package com.taskmanager.service;
 
-import com.taskmanager.entity.Notification;
-import com.taskmanager.entity.Task;
+import com.taskmanager.entity.CongViec;
+import com.taskmanager.entity.ThongBao;
 import com.taskmanager.repository.NotificationRepository;
 import com.taskmanager.repository.TaskRepository;
 import com.taskmanager.repository.TimeBlockRepository;
@@ -51,7 +51,7 @@ class NotificationDecisionServiceTest {
     @DisplayName("Không tạo lại thông báo quá hạn nếu đã từng thông báo cho task đó (kể cả đã xóa hoặc đã đọc)")
     void evaluate_DoesNotRecreateIfAlreadyNotifiedForTask() {
         Long userId = 1L;
-        Task overdueTask = Task.builder()
+        CongViec overdueTask = CongViec.builder()
                 .id(100L)
                 .title("Nộp báo cáo đồ án")
                 .status("IN_PROGRESS")
@@ -64,7 +64,7 @@ class NotificationDecisionServiceTest {
         when(notificationRepository.existsByUserIdAndTaskIdAndType(userId, 100L, "alert")).thenReturn(true);
         when(notificationRepository.findActiveByUserId(userId)).thenReturn(Collections.emptyList());
 
-        List<Notification> result = decisionService.evaluateAndGenerateNotifications(userId);
+        List<ThongBao> result = decisionService.evaluateAndGenerateNotifications(userId);
 
         // Không được gọi saveAll để sinh thông báo mới
         verify(notificationRepository, never()).saveAll(anyList());
@@ -76,7 +76,7 @@ class NotificationDecisionServiceTest {
     @DisplayName("Tạo thông báo mới khi có task quá hạn chưa từng được thông báo")
     void evaluate_CreatesNotificationForNewOverdueTask() {
         Long userId = 1L;
-        Task overdueTask = Task.builder()
+        CongViec overdueTask = CongViec.builder()
                 .id(200L)
                 .title("Làm bài tập lớn")
                 .status("TODO")
@@ -87,13 +87,12 @@ class NotificationDecisionServiceTest {
         when(timeBlockRepository.findByUserId(userId)).thenReturn(Collections.emptyList());
         when(notificationRepository.existsByUserIdAndTaskIdAndType(userId, 200L, "alert")).thenReturn(false);
         when(notificationRepository.findActiveByUserId(userId)).thenReturn(List.of(
-                Notification.builder().id(1L).title("⚠️ Quá hạn deadline: Làm bài tập lớn").build()
+                ThongBao.builder().id(1L).title("⚠️ Quá hạn deadline: Làm bài tập lớn").build()
         ));
 
-        List<Notification> result = decisionService.evaluateAndGenerateNotifications(userId);
+        List<ThongBao> result = decisionService.evaluateAndGenerateNotifications(userId);
 
         verify(notificationRepository, times(1)).saveAll(anyList());
         assertEquals(1, result.size());
     }
 }
-

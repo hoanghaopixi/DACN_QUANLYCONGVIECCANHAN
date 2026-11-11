@@ -1,9 +1,9 @@
 package com.taskmanager.service;
 
-import com.taskmanager.entity.Notification;
-import com.taskmanager.entity.Task;
-import com.taskmanager.entity.TimeBlock;
-import com.taskmanager.entity.User;
+import com.taskmanager.entity.ThongBao;
+import com.taskmanager.entity.CongViec;
+import com.taskmanager.entity.KhoiThoiGian;
+import com.taskmanager.entity.NguoiDung;
 import com.taskmanager.repository.NotificationRepository;
 import com.taskmanager.repository.TaskRepository;
 import com.taskmanager.repository.TimeBlockRepository;
@@ -56,8 +56,8 @@ public class NotificationDecisionService {
     @Scheduled(fixedDelay = 180000)
     public void scheduledEvaluationForAllUsers() {
         try {
-            List<User> users = userRepository.findAll();
-            for (User u : users) {
+            List<NguoiDung> users = userRepository.findAll();
+            for (NguoiDung u : users) {
                 evaluateAndGenerateNotifications(u.getId());
             }
         } catch (Exception e) {
@@ -66,25 +66,25 @@ public class NotificationDecisionService {
     }
 
     @Transactional
-    public List<Notification> evaluateAndGenerateNotifications(Long userId) {
+    public List<ThongBao> evaluateAndGenerateNotifications(Long userId) {
         log.info("Running Notification Decision Engine for userId: {}", userId);
         OffsetDateTime now = OffsetDateTime.now(VN_ZONE);
         OffsetDateTime recent24hCutoff = now.minusHours(24);
 
-        List<Task> allTasks = taskRepository.findByUserId(userId);
-        List<TimeBlock> allBlocks = timeBlockRepository.findByUserId(userId);
+        List<CongViec> allTasks = taskRepository.findByUserId(userId);
+        List<KhoiThoiGian> allBlocks = timeBlockRepository.findByUserId(userId);
 
-        List<Notification> newlyGenerated = new ArrayList<>();
+        List<ThongBao> newlyGenerated = new ArrayList<>();
 
-        Map<Long, List<TimeBlock>> taskBlockMap = new HashMap<>();
-        for (TimeBlock b : allBlocks) {
+        Map<Long, List<KhoiThoiGian>> taskBlockMap = new HashMap<>();
+        for (KhoiThoiGian b : allBlocks) {
             if (b.getTaskId() != null) {
                 taskBlockMap.computeIfAbsent(b.getTaskId(), k -> new ArrayList<>()).add(b);
             }
         }
 
         // ── THUẬT TOÁN 1: PHÁT HIỆN CÔNG VIỆC QUÁ HẠN (OVERDUE DETECTION ALGORITHM) ──
-        for (Task task : allTasks) {
+        for (CongViec task : allTasks) {
             if ("COMPLETED".equalsIgnoreCase(task.getStatus()) || "CANCELLED".equalsIgnoreCase(task.getStatus())) {
                 continue;
             }
@@ -104,7 +104,7 @@ public class NotificationDecisionService {
                         long hoursOverdue = Math.max(1, Duration.between(due, now).toHours());
                         String timeUnit = hoursOverdue >= 24 ? (hoursOverdue / 24) + " ngày" : hoursOverdue + " giờ";
 
-                        Notification overdueNotice = Notification.builder()
+                        ThongBao overdueNotice = ThongBao.builder()
                                 .userId(userId)
                                 .taskId(task.getId())
                                 .type("alert")
@@ -128,7 +128,7 @@ public class NotificationDecisionService {
                             String remainingText = hoursUntilDue <= 1 
                                     ? Duration.between(now, due).toMinutes() + " phút nữa" 
                                     : hoursUntilDue + " giờ nữa";
-                            Notification imminentNotice = Notification.builder()
+                            ThongBao imminentNotice = ThongBao.builder()
                                     .userId(userId)
                                     .taskId(task.getId())
                                     .type("alert")
@@ -145,15 +145,15 @@ public class NotificationDecisionService {
                 }
             } else {
                 // Kiểm tra nếu task chưa xong mà khối thời gian của nó đã kết thúc trong quá khứ (> 1 giờ trước)
-                List<TimeBlock> blocks = taskBlockMap.get(task.getId());
+                List<KhoiThoiGian> blocks = taskBlockMap.get(task.getId());
                 if (blocks != null && !blocks.isEmpty()) {
-                    for (TimeBlock b : blocks) {
+                    for (KhoiThoiGian b : blocks) {
                         if (b.getEndTime() != null && b.getEndTime().isBefore(now.minusHours(1))) {
                             boolean alreadyNotified = notificationRepository.existsByUserIdAndTaskIdAndType(
                                     userId, task.getId(), "alert");
                             if (!alreadyNotified) {
                                 String titleKey = "⚠️ Quá hạn lịch trình: " + task.getTitle();
-                                Notification blockOverdueNotice = Notification.builder()
+                                ThongBao blockOverdueNotice = ThongBao.builder()
                                         .userId(userId)
                                         .taskId(task.getId())
                                         .type("alert")
@@ -174,7 +174,7 @@ public class NotificationDecisionService {
         }
 
         // ── THUẬT TOÁN 3: NHẮC NHỞ LỊCH TRÌNH SẮP DIỄN RA (TRONG VÒNG 90 PHÚT) ──
-        for (TimeBlock block : allBlocks) {
+        for (KhoiThoiGian block : allBlocks) {
             OffsetDateTime start = block.getStartTime();
             if (start != null) {
                 long minutesUntilStart = Duration.between(now, start).toMinutes();
@@ -188,7 +188,7 @@ public class NotificationDecisionService {
                                 ? "sẽ bắt đầu lúc " + formatTime(start) + " (khoảng " + minutesUntilStart + " phút nữa)"
                                 : "đang diễn ra (bắt đầu lúc " + formatTime(start) + ")";
 
-                        Notification reminderNotice = Notification.builder()
+                        ThongBao reminderNotice = ThongBao.builder()
                                 .userId(userId)
                                 .taskId(block.getTaskId())
                                 .type("reminder")
@@ -207,12 +207,12 @@ public class NotificationDecisionService {
 
         // ── THUẬT TOÁN 4: PHÁT HIỆN XUNG ĐỘT LỊCH TRÌNH ──
         for (int i = 0; i < allBlocks.size(); i++) {
-            TimeBlock b1 = allBlocks.get(i);
+            KhoiThoiGian b1 = allBlocks.get(i);
             if (b1.getStartTime() == null || b1.getEndTime() == null) continue;
             if (b1.getEndTime().isBefore(now.minusHours(2))) continue;
 
             for (int j = i + 1; j < allBlocks.size(); j++) {
-                TimeBlock b2 = allBlocks.get(j);
+                KhoiThoiGian b2 = allBlocks.get(j);
                 if (b2.getStartTime() == null || b2.getEndTime() == null) continue;
 
                 if (b1.getStartTime().isBefore(b2.getEndTime()) && b2.getStartTime().isBefore(b1.getEndTime())) {
@@ -221,7 +221,7 @@ public class NotificationDecisionService {
                             userId, conflictTitle, recent24hCutoff);
 
                     if (!alreadyNotified) {
-                        Notification conflictNotice = Notification.builder()
+                        ThongBao conflictNotice = ThongBao.builder()
                                 .userId(userId)
                                 .type("alert")
                                 .title(conflictTitle)
@@ -239,7 +239,7 @@ public class NotificationDecisionService {
 
         // ── THUẬT TOÁN 5: ĐỀ XUẤT TỐI ƯU HÓA AI (TỐI ĐA 1 LẦN / 24 GIỜ) ──
         Set<Long> scheduledTaskIds = new HashSet<>();
-        for (TimeBlock tb : allBlocks) {
+        for (KhoiThoiGian tb : allBlocks) {
             if (tb.getTaskId() != null) {
                 scheduledTaskIds.add(tb.getTaskId());
             }
@@ -256,7 +256,7 @@ public class NotificationDecisionService {
                     userId, "ai", recent24hCutoff);
 
             if (!alreadyNotifiedAi) {
-                Notification aiNotice = Notification.builder()
+                ThongBao aiNotice = ThongBao.builder()
                         .userId(userId)
                         .type("ai")
                         .title("💡 Đề xuất tối ưu hóa lịch trình")
@@ -279,7 +279,7 @@ public class NotificationDecisionService {
                         userId, "success", recent24hCutoff);
 
                 if (!alreadyNotifiedSuccess) {
-                    Notification successNotice = Notification.builder()
+                    ThongBao successNotice = ThongBao.builder()
                             .userId(userId)
                             .type("success")
                             .title("🎉 Đã hoàn thành " + (int) completionRate + "% khối lượng công việc")

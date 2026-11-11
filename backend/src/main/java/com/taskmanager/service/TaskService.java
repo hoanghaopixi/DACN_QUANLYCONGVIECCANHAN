@@ -1,10 +1,11 @@
 package com.taskmanager.service;
 
 import com.taskmanager.dto.TaskDto;
-import com.taskmanager.entity.Category;
-import com.taskmanager.entity.Subtask;
-import com.taskmanager.entity.Task;
-import com.taskmanager.entity.TimeBlock;
+import com.taskmanager.entity.CongViec;
+import com.taskmanager.entity.CongViecCon;
+import com.taskmanager.entity.DanhMuc;
+import com.taskmanager.entity.KhoiThoiGian;
+import com.taskmanager.entity.KhongGianLamViec;
 import com.taskmanager.exception.ResourceNotFoundException;
 import com.taskmanager.repository.CategoryRepository;
 import com.taskmanager.repository.SubtaskRepository;
@@ -33,44 +34,44 @@ public class TaskService {
 
     @Transactional(readOnly = true)
     public List<TaskDto> getTasks(Long userId, Long workspaceId) {
-        List<Task> tasks;
+        List<CongViec> tasks;
         if (workspaceId != null) {
             tasks = taskRepository.findByUserIdAndWorkspaceId(userId, workspaceId);
         } else {
             tasks = taskRepository.findByUserId(userId);
         }
-        List<TimeBlock> blocks = timeBlockRepository.findByUserId(userId);
-        Map<Long, TimeBlock> blockMap = new HashMap<>();
-        for (TimeBlock b : blocks) {
+        List<KhoiThoiGian> blocks = timeBlockRepository.findByUserId(userId);
+        Map<Long, KhoiThoiGian> blockMap = new HashMap<>();
+        for (KhoiThoiGian b : blocks) {
             if (b.getTaskId() != null) {
                 blockMap.put(b.getTaskId(), b);
             }
         }
 
-        Map<Long, Category> categoryMap = new HashMap<>();
-        for (Category c : categoryRepository.findByUserId(userId)) {
+        Map<Long, DanhMuc> categoryMap = new HashMap<>();
+        for (DanhMuc c : categoryRepository.findByUserId(userId)) {
             categoryMap.put(c.getId(), c);
         }
 
-        Map<Long, List<Subtask>> subtasksByTaskId = new HashMap<>();
-        List<Long> taskIds = tasks.stream().map(Task::getId).filter(Objects::nonNull).toList();
+        Map<Long, List<CongViecCon>> subtasksByTaskId = new HashMap<>();
+        List<Long> taskIds = tasks.stream().map(CongViec::getId).filter(Objects::nonNull).toList();
         if (!taskIds.isEmpty()) {
-            for (Subtask subtask : subtaskRepository.findByTaskIdInOrderByOrderIndexAsc(taskIds)) {
+            for (CongViecCon subtask : subtaskRepository.findByTaskIdInOrderByOrderIndexAsc(taskIds)) {
                 subtasksByTaskId.computeIfAbsent(subtask.getTaskId(), ignored -> new ArrayList<>()).add(subtask);
             }
         }
 
         Map<String, Integer> completedCountsByTitle = new HashMap<>();
-        for (Task task : tasks) {
+        for (CongViec task : tasks) {
             if ("COMPLETED".equalsIgnoreCase(task.getStatus()) && task.getTitle() != null) {
                 completedCountsByTitle.merge(task.getTitle().trim().toLowerCase(Locale.ROOT), 1, Integer::sum);
             }
         }
 
         List<TaskDto> dtos = new ArrayList<>();
-        for (Task t : tasks) {
-            TimeBlock b = blockMap.get(t.getId());
-            Category c = t.getCategoryId() != null ? categoryMap.get(t.getCategoryId()) : null;
+        for (CongViec t : tasks) {
+            KhoiThoiGian b = blockMap.get(t.getId());
+            DanhMuc c = t.getCategoryId() != null ? categoryMap.get(t.getCategoryId()) : null;
 
             String categoryType = "WORK";
             if (c != null) {
@@ -91,7 +92,7 @@ public class TaskService {
                     : t.getDescription();
 
             // Calculate subtasks progress
-            List<Subtask> subtasks = subtasksByTaskId.getOrDefault(t.getId(), List.of());
+            List<CongViecCon> subtasks = subtasksByTaskId.getOrDefault(t.getId(), List.of());
             int subtasksCount = subtasks.size();
             int completedSubtasks = (int) subtasks.stream().filter(s -> Boolean.TRUE.equals(s.getIsCompleted())).count();
 
@@ -134,7 +135,7 @@ public class TaskService {
         Long workspaceId = dto.getWorkspaceId();
         if (workspaceId == null) {
             workspaceId = workspaceRepository.findFirstByUserIdOrderByIdAsc(userId)
-                    .map(com.taskmanager.entity.Workspace::getId)
+                    .map(KhongGianLamViec::getId)
                     .orElseThrow(() -> new ResourceNotFoundException("Tài khoản chưa có không gian làm việc."));
         }
         if (!workspaceRepository.existsByIdAndUserId(workspaceId, userId)) {
@@ -152,7 +153,7 @@ public class TaskService {
             else if ("HEALTH".equalsIgnoreCase(dto.getCategoryType())) catName = "Sức khỏe";
             else if ("ENTERTAINMENT".equalsIgnoreCase(dto.getCategoryType())) catName = "Giải trí";
 
-            for (Category c : categoryRepository.findByUserIdAndWorkspaceId(userId, workspaceId)) {
+            for (DanhMuc c : categoryRepository.findByUserIdAndWorkspaceId(userId, workspaceId)) {
                 if (c.getName().equalsIgnoreCase(catName)) {
                     categoryId = c.getId();
                     break;
@@ -160,7 +161,7 @@ public class TaskService {
             }
         }
         if (categoryId != null) {
-            Category category = categoryRepository.findByIdAndUserId(categoryId, userId)
+            DanhMuc category = categoryRepository.findByIdAndUserId(categoryId, userId)
                     .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm công việc."));
             if (category.getWorkspaceId() != null && !workspaceId.equals(category.getWorkspaceId())) {
                 throw new IllegalArgumentException("Nhóm công việc không thuộc không gian đã chọn.");
@@ -194,7 +195,7 @@ public class TaskService {
             throw new IllegalArgumentException("Thời lượng thực tế không hợp lệ.");
         }
 
-        Task task = Task.builder()
+        CongViec task = CongViec.builder()
                 .userId(userId)
                 .workspaceId(workspaceId)
                 .categoryId(categoryId)
@@ -211,7 +212,7 @@ public class TaskService {
                 .isLocked(Boolean.TRUE.equals(dto.getIsLocked()))
                 .build();
 
-        Task savedTask = taskRepository.save(task);
+        CongViec savedTask = taskRepository.save(task);
 
         OffsetDateTime start = dto.getStartTime() != null ? dto.getStartTime() : OffsetDateTime.now();
         OffsetDateTime end = dto.getEndTime() != null ? dto.getEndTime() : start.plusHours(1);
@@ -219,7 +220,7 @@ public class TaskService {
             throw new IllegalArgumentException("Giờ kết thúc phải sau giờ bắt đầu.");
         }
 
-        TimeBlock block = TimeBlock.builder()
+        KhoiThoiGian block = KhoiThoiGian.builder()
                 .userId(userId)
                 .taskId(savedTask.getId())
                 .title(savedTask.getTitle())
@@ -246,7 +247,7 @@ public class TaskService {
 
     @Transactional
     public TaskDto updateTask(Long userId, Long taskId, TaskDto dto) {
-        Task task = requireOwnedTask(userId, taskId);
+        CongViec task = requireOwnedTask(userId, taskId);
 
         if (dto.getTitle() != null && (dto.getTitle().isBlank() || dto.getTitle().trim().length() > 255)) {
             throw new IllegalArgumentException("Tên công việc phải có từ 1 đến 255 ký tự.");
@@ -315,7 +316,7 @@ public class TaskService {
             task.setActualDurationMinutes(dto.getActualDurationMinutes());
         }
         if (dto.getCategoryId() != null) {
-            Category category = categoryRepository.findByIdAndUserId(dto.getCategoryId(), userId)
+            DanhMuc category = categoryRepository.findByIdAndUserId(dto.getCategoryId(), userId)
                     .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm công việc."));
             Long targetWorkspaceId = dto.getWorkspaceId() != null ? dto.getWorkspaceId() : task.getWorkspaceId();
             if (category.getWorkspaceId() != null && targetWorkspaceId != null
@@ -330,10 +331,10 @@ public class TaskService {
             else if ("ENTERTAINMENT".equalsIgnoreCase(dto.getCategoryType())) catName = "Giải trí";
 
             Long targetWorkspaceId = dto.getWorkspaceId() != null ? dto.getWorkspaceId() : task.getWorkspaceId();
-            List<Category> categories = targetWorkspaceId != null
+            List<DanhMuc> categories = targetWorkspaceId != null
                     ? categoryRepository.findByUserIdAndWorkspaceId(userId, targetWorkspaceId)
                     : categoryRepository.findByUserId(userId);
-            for (Category c : categories) {
+            for (DanhMuc c : categories) {
                 if (c.getName().equalsIgnoreCase(catName)) {
                     task.setCategoryId(c.getId());
                     break;
@@ -345,7 +346,7 @@ public class TaskService {
                 throw new ResourceNotFoundException("Không tìm thấy không gian làm việc.");
             }
             if (task.getCategoryId() != null) {
-                Category existingCategory = categoryRepository.findByIdAndUserId(task.getCategoryId(), userId)
+                DanhMuc existingCategory = categoryRepository.findByIdAndUserId(task.getCategoryId(), userId)
                         .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm công việc."));
                 if (existingCategory.getWorkspaceId() != null
                         && !existingCategory.getWorkspaceId().equals(dto.getWorkspaceId())) {
@@ -354,8 +355,8 @@ public class TaskService {
             }
             task.setWorkspaceId(dto.getWorkspaceId());
         }
-        List<TimeBlock> userBlocks = timeBlockRepository.findByUserId(userId);
-        TimeBlock existingTaskBlock = userBlocks.stream()
+        List<KhoiThoiGian> userBlocks = timeBlockRepository.findByUserId(userId);
+        KhoiThoiGian existingTaskBlock = userBlocks.stream()
                 .filter(block -> taskId.equals(block.getTaskId())).findFirst().orElse(null);
         OffsetDateTime resultingStart = dto.getStartTime();
         OffsetDateTime resultingEnd = dto.getEndTime();
@@ -372,14 +373,14 @@ public class TaskService {
         if (dto.getIsLocked() != null) {
             task.setIsLocked(dto.getIsLocked());
         }
-        Task updatedTask = taskRepository.save(task);
+        CongViec updatedTask = taskRepository.save(task);
 
         // Update corresponding TimeBlock if time or title changed
         boolean foundBlock = false;
         OffsetDateTime currentBlockStart = null;
         OffsetDateTime currentBlockEnd = null;
 
-        for (TimeBlock b : userBlocks) {
+        for (KhoiThoiGian b : userBlocks) {
             if (taskId.equals(b.getTaskId())) {
                 if (dto.getTitle() != null && !dto.getTitle().trim().isEmpty()) {
                     b.setTitle(dto.getTitle().trim());
@@ -407,7 +408,7 @@ public class TaskService {
         if (!foundBlock && (dto.getStartTime() != null || dto.getEndTime() != null)) {
             OffsetDateTime start = dto.getStartTime() != null ? dto.getStartTime() : OffsetDateTime.now();
             OffsetDateTime end = dto.getEndTime() != null ? dto.getEndTime() : start.plusHours(1);
-            TimeBlock newBlock = TimeBlock.builder()
+            KhoiThoiGian newBlock = KhoiThoiGian.builder()
                     .userId(userId)
                     .taskId(taskId)
                     .title(updatedTask.getTitle())
@@ -455,7 +456,7 @@ public class TaskService {
     /**
      * Tự động tạo lần lặp tiếp theo cho thói quen / công việc lặp lại
      */
-    private void spawnNextRecurrence(Long userId, Task completedTask, OffsetDateTime baseStart, OffsetDateTime baseEnd) {
+    private void spawnNextRecurrence(Long userId, CongViec completedTask, OffsetDateTime baseStart, OffsetDateTime baseEnd) {
         try {
             OffsetDateTime startRef = baseStart != null ? baseStart : OffsetDateTime.now();
             OffsetDateTime endRef = baseEnd != null ? baseEnd : startRef.plusHours(1);
@@ -484,7 +485,7 @@ public class TaskService {
                 nextEnd = endRef.plusDays(1);
             }
 
-            Task nextTask = Task.builder()
+            CongViec nextTask = CongViec.builder()
                     .userId(userId)
                     .workspaceId(completedTask.getWorkspaceId())
                     .categoryId(completedTask.getCategoryId())
@@ -501,9 +502,9 @@ public class TaskService {
                     .actualDurationMinutes(0)
                     .build();
 
-            Task savedNext = taskRepository.save(nextTask);
+            CongViec savedNext = taskRepository.save(nextTask);
 
-            TimeBlock nextBlock = TimeBlock.builder()
+            KhoiThoiGian nextBlock = KhoiThoiGian.builder()
                     .userId(userId)
                     .taskId(savedNext.getId())
                     .title(savedNext.getTitle())
@@ -524,7 +525,7 @@ public class TaskService {
     /**
      * Tính chuỗi ngày liên tiếp (Streak) của thói quen
      */
-    private int calculateStreak(Task task, Map<String, Integer> completedCountsByTitle) {
+    private int calculateStreak(CongViec task, Map<String, Integer> completedCountsByTitle) {
         if (!Boolean.TRUE.equals(task.getIsRecurring())) return 0;
         String title = task.getTitle().trim().toLowerCase(Locale.ROOT);
         int completedCount = completedCountsByTitle.getOrDefault(title, 0);
@@ -559,7 +560,7 @@ public class TaskService {
 
     @Transactional
     public TaskDto updateQuadrant(Long userId, Long taskId, String quadrant) {
-        Task task = requireOwnedTask(userId, taskId);
+        CongViec task = requireOwnedTask(userId, taskId);
         if (quadrant == null || !Set.of("DO_FIRST", "SCHEDULE", "DELEGATE", "DONT_DO")
                 .contains(quadrant.trim().toUpperCase(Locale.ROOT))) {
             throw new IllegalArgumentException("Phân loại ưu tiên không hợp lệ");
@@ -613,8 +614,8 @@ public class TaskService {
         return matrix;
     }
 
-    private Task requireOwnedTask(Long userId, Long taskId) {
-        Task task = taskRepository.findById(taskId)
+    private CongViec requireOwnedTask(Long userId, Long taskId) {
+        CongViec task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new com.taskmanager.exception.ResourceNotFoundException(
                         "Không tìm thấy công việc #" + taskId));
         if (!Objects.equals(task.getUserId(), userId)) {
@@ -634,15 +635,15 @@ public class TaskService {
                 .withHour(0).withMinute(0).withSecond(0).withNano(0);
         java.time.OffsetDateTime sunday = monday.plusDays(7).minusNanos(1);
 
-        List<Task> scopedTasks = workspaceId != null
+        List<CongViec> scopedTasks = workspaceId != null
                 ? taskRepository.findByUserIdAndWorkspaceId(userId, workspaceId)
                 : taskRepository.findByUserId(userId);
-        Map<Long, Task> tasksById = new HashMap<>();
-        for (Task task : scopedTasks) {
+        Map<Long, CongViec> tasksById = new HashMap<>();
+        for (CongViec task : scopedTasks) {
             tasksById.put(task.getId(), task);
         }
 
-        List<TimeBlock> blocksInWeek = timeBlockRepository.findByUserId(userId).stream()
+        List<KhoiThoiGian> blocksInWeek = timeBlockRepository.findByUserId(userId).stream()
                 .filter(block -> block.getStartTime() != null && block.getEndTime() != null)
                 .filter(block -> !block.getStartTime().isAfter(sunday) && !block.getEndTime().isBefore(monday))
                 .filter(block -> workspaceId == null
@@ -654,9 +655,9 @@ public class TaskService {
         long completedTasks = 0;
         double totalDurationMinutes = 0;
 
-        for (TimeBlock b : blocksInWeek) {
+        for (KhoiThoiGian b : blocksInWeek) {
             if (b.getTaskId() != null) {
-                Task t = tasksById.get(b.getTaskId());
+                CongViec t = tasksById.get(b.getTaskId());
                 if (t != null && "COMPLETED".equalsIgnoreCase(t.getStatus())) {
                     completedTasks++;
                 }

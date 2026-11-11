@@ -4,10 +4,10 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import com.taskmanager.client.gemini.GeminiApiClient;
 import com.taskmanager.dto.ProductivityReportDto;
-import com.taskmanager.entity.Category;
-import com.taskmanager.entity.ProductivityLog;
-import com.taskmanager.entity.Task;
-import com.taskmanager.entity.TimeBlock;
+import com.taskmanager.entity.DanhMuc;
+import com.taskmanager.entity.NhatKyNangSuat;
+import com.taskmanager.entity.CongViec;
+import com.taskmanager.entity.KhoiThoiGian;
 import com.taskmanager.repository.CategoryRepository;
 import com.taskmanager.repository.ProductivityLogRepository;
 import com.taskmanager.repository.TaskRepository;
@@ -48,26 +48,26 @@ public class ProductivityService {
                 ? LocalDate.parse(dateStr.trim()) : LocalDate.now(VIETNAM_ZONE);
 
         // Fetch user tasks & categories
-        List<Task> allUserTasks = taskRepository.findByUserId(userId);
-        List<Category> allCategories = categoryRepository.findByUserId(userId);
-        Map<Long, Category> categoryMap = allCategories.stream()
-                .collect(Collectors.toMap(Category::getId, c -> c, (a, b) -> a));
+        List<CongViec> allUserTasks = taskRepository.findByUserId(userId);
+        List<DanhMuc> allCategories = categoryRepository.findByUserId(userId);
+        Map<Long, DanhMuc> categoryMap = allCategories.stream()
+                .collect(Collectors.toMap(DanhMuc::getId, c -> c, (a, b) -> a));
 
         // Fetch time blocks in 7-day range for accurate focus duration & trend
         OffsetDateTime weekStart = reportDate.minusDays(7).atStartOfDay(VIETNAM_ZONE).toOffsetDateTime();
         OffsetDateTime weekEnd = reportDate.plusDays(1).atStartOfDay(VIETNAM_ZONE).toOffsetDateTime();
-        List<TimeBlock> recentTimeBlocks = timeBlockRepository.findByUserIdAndStartTimeBetween(userId, weekStart, weekEnd);
+        List<KhoiThoiGian> recentTimeBlocks = timeBlockRepository.findByUserIdAndStartTimeBetween(userId, weekStart, weekEnd);
 
         // 1. Separate tasks strictly for reportDate
-        List<Task> completedTodayList = allUserTasks.stream()
+        List<CongViec> completedTodayList = allUserTasks.stream()
                 .filter(t -> isCompletedOnDate(t, reportDate))
                 .toList();
 
-        List<Task> scheduledTodayList = allUserTasks.stream()
+        List<CongViec> scheduledTodayList = allUserTasks.stream()
                 .filter(t -> isScheduledOrDueOnDate(t, reportDate))
                 .toList();
 
-        List<Task> overdueList = allUserTasks.stream()
+        List<CongViec> overdueList = allUserTasks.stream()
                 .filter(t -> isOverdueOnDate(t, reportDate))
                 .toList();
 
@@ -76,16 +76,16 @@ public class ProductivityService {
 
         // Total tasks for the day: tasks scheduled/due today or completed today
         Set<Long> todayTaskIds = new HashSet<>();
-        for (Task t : completedTodayList) {
+        for (CongViec t : completedTodayList) {
             if (t.getId() != null) todayTaskIds.add(t.getId());
         }
-        for (Task t : scheduledTodayList) {
+        for (CongViec t : scheduledTodayList) {
             if (t.getId() != null) todayTaskIds.add(t.getId());
         }
         int totalTasksToday = Math.max(todayTaskIds.size(), completedCount);
 
         // 2. Focus minutes & focus sessions calculation
-        List<TimeBlock> todayBlocks = recentTimeBlocks.stream()
+        List<KhoiThoiGian> todayBlocks = recentTimeBlocks.stream()
                 .filter(tb -> tb.getStartTime() != null && tb.getStartTime().atZoneSameInstant(VIETNAM_ZONE).toLocalDate().isEqual(reportDate))
                 .toList();
 
@@ -137,7 +137,7 @@ public class ProductivityService {
         if (geminiApiClient.isConfigured()) {
             try {
                 String completedTitles = completedTodayList.stream()
-                        .map(Task::getTitle)
+                        .map(CongViec::getTitle)
                         .limit(3)
                         .collect(Collectors.joining(", "));
 
@@ -180,8 +180,8 @@ public class ProductivityService {
 
         // 8. Save or update ProductivityLog in PostgreSQL
         try {
-            ProductivityLog logEntity = productivityLogRepository.findByUserIdAndReportDate(userId, reportDate)
-                    .orElse(ProductivityLog.builder()
+            NhatKyNangSuat logEntity = productivityLogRepository.findByUserIdAndReportDate(userId, reportDate)
+                    .orElse(NhatKyNangSuat.builder()
                             .userId(userId)
                             .reportDate(reportDate)
                             .build());
@@ -222,7 +222,7 @@ public class ProductivityService {
                 .build();
     }
 
-    private boolean isCompletedOnDate(Task t, LocalDate date) {
+    private boolean isCompletedOnDate(CongViec t, LocalDate date) {
         if (!"COMPLETED".equalsIgnoreCase(t.getStatus())) {
             return false;
         }
@@ -241,7 +241,7 @@ public class ProductivityService {
         return false;
     }
 
-    private boolean isScheduledOrDueOnDate(Task t, LocalDate date) {
+    private boolean isScheduledOrDueOnDate(CongViec t, LocalDate date) {
         if (t.getDueDate() != null && t.getDueDate().atZoneSameInstant(VIETNAM_ZONE).toLocalDate().isEqual(date)) {
             return true;
         }
@@ -254,7 +254,7 @@ public class ProductivityService {
         return false;
     }
 
-    private boolean isOverdueOnDate(Task t, LocalDate date) {
+    private boolean isOverdueOnDate(CongViec t, LocalDate date) {
         if ("COMPLETED".equalsIgnoreCase(t.getStatus()) || "CANCELLED".equalsIgnoreCase(t.getStatus())) {
             return false;
         }
@@ -282,7 +282,7 @@ public class ProductivityService {
         return (int) Math.max(10, Math.min(100, Math.round(totalScore)));
     }
 
-    private int calculateStreak(List<Task> allTasks, LocalDate anchorDate) {
+    private int calculateStreak(List<CongViec> allTasks, LocalDate anchorDate) {
         int streak = 0;
         LocalDate cur = anchorDate;
         // Check if anchorDate has any completed tasks; if not and anchorDate is today, start check from yesterday
@@ -305,8 +305,8 @@ public class ProductivityService {
     }
 
     private List<ProductivityReportDto.DailySummaryDto> buildWeekTrends(
-            List<Task> allTasks,
-            List<TimeBlock> recentTimeBlocks,
+            List<CongViec> allTasks,
+            List<KhoiThoiGian> recentTimeBlocks,
             LocalDate anchorDate) {
         List<ProductivityReportDto.DailySummaryDto> list = new ArrayList<>();
         String[] dayNames = {"CN", "T2", "T3", "T4", "T5", "T6", "T7"};
@@ -351,13 +351,13 @@ public class ProductivityService {
     }
 
     private Map<String, Integer> buildCategoryDistribution(
-            List<Task> allTasks,
-            Map<Long, Category> categoryMap,
+            List<CongViec> allTasks,
+            Map<Long, DanhMuc> categoryMap,
             LocalDate reportDate) {
         Map<String, Integer> catDist = new LinkedHashMap<>();
 
         // Group tasks scheduled/due/completed on reportDate
-        List<Task> targetTasks = allTasks.stream()
+        List<CongViec> targetTasks = allTasks.stream()
                 .filter(t -> isCompletedOnDate(t, reportDate) || isScheduledOrDueOnDate(t, reportDate))
                 .toList();
 
@@ -369,7 +369,7 @@ public class ProductivityService {
                     .toList();
         }
 
-        for (Task t : targetTasks) {
+        for (CongViec t : targetTasks) {
             String catName = "Chung";
             if (t.getCategoryId() != null && categoryMap.containsKey(t.getCategoryId())) {
                 catName = categoryMap.get(t.getCategoryId()).getName();
@@ -387,11 +387,11 @@ public class ProductivityService {
         return catDist;
     }
 
-    private ProductivityReportDto.TaskItemDto mapToTaskItemDto(Task t, Map<Long, Category> categoryMap) {
+    private ProductivityReportDto.TaskItemDto mapToTaskItemDto(CongViec t, Map<Long, DanhMuc> categoryMap) {
         String catName = "Chung";
         String catColor = "#6C5CE7";
         if (t.getCategoryId() != null && categoryMap.containsKey(t.getCategoryId())) {
-            Category c = categoryMap.get(t.getCategoryId());
+            DanhMuc c = categoryMap.get(t.getCategoryId());
             catName = c.getName();
             if (c.getColorCode() != null && !c.getColorCode().isBlank()) {
                 catColor = c.getColorCode();

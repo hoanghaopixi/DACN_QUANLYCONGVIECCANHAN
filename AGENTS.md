@@ -40,8 +40,9 @@ Cơ sở dữ liệu được định nghĩa chuẩn hóa 3NF tại [CSDL_CHI_TI
   ```
 
 ### 2.2. Danh sách Entity cốt lõi (`backend/src/main/java/com/taskmanager/entity/`):
-1. **`User` (Bảng `nguoidung`)**: Quản lý tài khoản, email duy nhất, `MatKhau` (BCrypt), `HoVaTen`, `SoDienThoai`, `AnhDaiDien`, `NguonXacThuc` (`LOCAL`/`GOOGLE`), `KichHoat` (`isActive`), liên kết Many-to-Many với `Role` qua bảng `vaitronguoidung`.
-2. **`Task` (Bảng `congviec`)**:
+*Toàn bộ tên file Entity và class Java đã được chuẩn hóa đồng bộ 100% sang tiếng Việt tương ứng với tên bảng PostgreSQL:*
+1. **`NguoiDung` (Bảng `nguoidung`, file `NguoiDung.java`)**: Quản lý tài khoản, email duy nhất, `MatKhau` (BCrypt), `HoVaTen`, `SoDienThoai`, `AnhDaiDien`, `NguonXacThuc` (`LOCAL`/`GOOGLE`), `KichHoat` (`isActive`), liên kết Many-to-Many với `VaiTro` qua bảng `vaitronguoidung`.
+2. **`CongViec` (Bảng `congviec`, file `CongViec.java`)**:
    - `TieuDe`, `MoTa`, `GhiChu`.
    - `MucDoUuTien`: `LOW`, `MEDIUM`, `HIGH`, `URGENT`.
    - `GocPhanTu` (Eisenhower): `DO_FIRST` (Q1), `SCHEDULE` (Q2), `DELEGATE` (Q3), `DONT_DO` (Q4).
@@ -51,31 +52,35 @@ Cơ sở dữ liệu được định nghĩa chuẩn hóa 3NF tại [CSDL_CHI_TI
    - `KhoaRiengTu`: `Boolean isLocked` (đánh dấu task riêng tư cần bảo vệ mật khẩu).
    - `LapLai` (`isRecurring`), `QuyTacLapLai` (`recurrenceRule`: `DAILY`, `WEEKDAYS`, `WEEKLY`, `MONTHLY`).
    - `NguoiDungId`, `KhongGianId`, `DanhMucId`.
-3. **`TimeBlock` (Bảng `khoithoigian`)**:
+3. **`KhoiThoiGian` (Bảng `khoithoigian`, file `KhoiThoiGian.java`)**:
    - Lịch trình theo khung giờ cụ thể: `ThoiGianBatDau`, `ThoiGianKetThuc` (`OffsetDateTime`).
    - `CongViecId` (liên kết với Task hoặc sự kiện độc lập).
    - `TuDongXepLich` (`Boolean isAutoScheduled`): Đánh dấu khối do AI tự phân bổ.
    - `TrangThai`: `SCHEDULED`, `COMPLETED`, `CANCELLED`.
    - `MaMau` (`colorCode`), `GhiChu` (`note`), `KhoaRiengTu` (`isLocked`).
-4. **`Workspace` (Bảng `khonggianlamviec`)**:
+4. **`KhongGianLamViec` (Bảng `khonggianlamviec`, file `KhongGianLamViec.java`)**:
    - `TenKhongGian`, `TenBieuTuong`, `MacDinh` (`isDefault`).
    - Phân tách độc lập dữ liệu công việc (Cá nhân, Công việc, Học tập...).
-5. **`Category` (Bảng `danhmuc`)**:
+5. **`DanhMuc` (Bảng `danhmuc`, file `DanhMuc.java`)**:
    - `TenDanhMuc`, `MaMau`, `TenBieuTuong`, `MacDinh` (`isDefault`), thuộc `NguoiDungId` và `KhongGianId`.
-6. **`Subtask` (Bảng `congvieccon`)**:
+6. **`CongViecCon` (Bảng `congvieccon`, file `CongViecCon.java`)**:
    - `CongViecId`, `TieuDe`, `HoanThanh` (`isCompleted`), `ThoiLuongPhut`, `ThuTu` (`orderIndex`).
-7. **`HabitLog` (Bảng `nhatkythoiquen`)**:
+7. **`NhatKyThoiQuen` (Bảng `nhatkythoiquen`, file `NhatKyThoiQuen.java`)**:
    - Theo dõi thói quen hàng ngày: `CongViecId`, `NgayGhiNhan` (`LocalDate`), `TrangThai` (`COMPLETED`/`SKIPPED`), `GhiChu`.
    - Unique constraint: `("CongViecId", "NgayGhiNhan")`.
-8. **`ProductivityLog` (Bảng `nhatkynangsuat`)**:
+8. **`NhatKyNangSuat` (Bảng `nhatkynangsuat`, file `NhatKyNangSuat.java`)**:
    - `NgayBaoCao` (`LocalDate`), `TongCongViecHoanThanh`, `TongPhutTapTrung`, `TyLeDungHan`, `SoCongViecQuaHan`, `NhanXetAI`.
    - Unique constraint: `("NguoiDungId", "NgayBaoCao")`.
-9. **`Notification` (Bảng `thongbao`)**:
+9. **`ThongBao` (Bảng `thongbao`, file `ThongBao.java`)**:
    - `LoaiThongBao` (`reminder`, `ai`, `alert`, `success`), `TieuDe`, `NoiDung`, `DaDoc` (`isRead`), `DaXoa` (`isDeleted`).
-10. **`UserPreference` (Bảng `caidatnguoidung`)**:
+10. **`CaiDatNguoiDung` (Bảng `caidatnguoidung`, file `CaiDatNguoiDung.java`)**:
     - `GioBatDauLamViec`, `GioKetThucLamViec`, `NgayLamViec` (`MON,TUE...`), `ThoiGianDemPhut` (`bufferMinutes`), `ThoiGianHieuSuatCao` (`peakProductivityTime`), `TuDongDoiLich`, `MuiGio`, `GiaoDien` (`LIGHT`/`DARK`), `HinhNenUrl`, `LoaiHinhNen` (`NONE`/`IMAGE`/`VIDEO`), `DoPhuToi` (`overlayDarkness` 0-100%).
-11. **`AiSchedulingLog` (Bảng `nhatkyai`)**:
+11. **`NhatKyAi` (Bảng `nhatkyai`, file `NhatKyAi.java`)**:
     - `LoaiHanhDong` (`AUTO_SCHEDULE`, `TASK_BREAKDOWN`, `NATURAL_PARSING`, `RESCHEDULE_OVERDUE`), `CauLenhDauVao`, `PhanHoiAI` (jsonb), `TrangThai`, `SoToken`, `ThoiGianXuLyMs`.
+12. **`VaiTro` (Bảng `vaitro`, file `VaiTro.java`)**:
+    - Quản lý vai trò / phân quyền người dùng (`ROLE_USER`, `ROLE_ADMIN`).
+13. **`LichSuMedia` (Bảng `lich_su_media`, file `LichSuMedia.java`)**:
+    - Lưu trữ lịch sử tải lên hình nền / video cá nhân hóa của người dùng.
 
 ---
 

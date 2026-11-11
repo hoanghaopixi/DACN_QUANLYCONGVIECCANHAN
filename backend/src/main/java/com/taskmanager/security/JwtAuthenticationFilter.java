@@ -1,6 +1,6 @@
 package com.taskmanager.security;
 
-import com.taskmanager.entity.User;
+import com.taskmanager.entity.NguoiDung;
 import com.taskmanager.repository.UserRepository;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
@@ -38,7 +38,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         try {
             Long userId = tokenService.readUserId(authorization.substring(7).trim());
-            User user = userRepository.findById(userId).orElse(null);
+            NguoiDung user = userRepository.findById(userId).orElse(null);
             if (user == null || !Boolean.TRUE.equals(user.getIsActive())) {
                 reject(response);
                 return;

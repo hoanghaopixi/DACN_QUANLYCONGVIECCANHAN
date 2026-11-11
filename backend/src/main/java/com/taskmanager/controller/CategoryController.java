@@ -1,6 +1,6 @@
 package com.taskmanager.controller;
 
-import com.taskmanager.entity.Category;
+import com.taskmanager.entity.DanhMuc;
 import com.taskmanager.repository.CategoryRepository;
 import com.taskmanager.repository.WorkspaceRepository;
 import com.taskmanager.util.UserResolver;
@@ -22,7 +22,7 @@ public class CategoryController {
     private final UserResolver userResolver;
 
     @GetMapping
-    public ResponseEntity<List<Category>> getCategories(
+    public ResponseEntity<List<DanhMuc>> getCategories(
             @RequestParam(required = false) Long workspaceId,
             HttpServletRequest request) {
         Long userId = userResolver.resolveUserId(request);
@@ -33,8 +33,8 @@ public class CategoryController {
     }
 
     @PostMapping
-    public ResponseEntity<Category> createCategory(
-            @RequestBody Category category,
+    public ResponseEntity<DanhMuc> createCategory(
+            @RequestBody DanhMuc category,
             @RequestParam(required = false) Long workspaceId,
             HttpServletRequest request) {
         Long userId = userResolver.resolveUserId(request);
@@ -58,12 +58,12 @@ public class CategoryController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Category> updateCategory(
+    public ResponseEntity<DanhMuc> updateCategory(
             @PathVariable Long id,
-            @RequestBody Category dto,
+            @RequestBody DanhMuc dto,
             HttpServletRequest request) {
         Long userId = userResolver.resolveUserId(request);
-        Category category = categoryRepository.findByIdAndUserId(id, userId)
+        DanhMuc category = categoryRepository.findByIdAndUserId(id, userId)
                 .orElseThrow(() -> new com.taskmanager.exception.ResourceNotFoundException("Không tìm thấy nhóm #" + id));
         if (dto.getName() != null && !dto.getName().isBlank()) {
             category.setName(dto.getName());
@@ -81,7 +81,7 @@ public class CategoryController {
     @DeleteMapping("/{id}")
     public ResponseEntity<?> deleteCategory(@PathVariable Long id, HttpServletRequest request) {
         Long userId = userResolver.resolveUserId(request);
-        Category category = categoryRepository.findByIdAndUserId(id, userId)
+        DanhMuc category = categoryRepository.findByIdAndUserId(id, userId)
                 .orElseThrow(() -> new com.taskmanager.exception.ResourceNotFoundException("Không tìm thấy nhóm #" + id));
 
         // Kiểm tra ràng buộc: KHÔNG ĐƯỢC XÓA khi có task đang dùng tag/nhóm này

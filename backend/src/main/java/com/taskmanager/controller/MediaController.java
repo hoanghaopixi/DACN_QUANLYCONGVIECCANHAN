@@ -1,6 +1,6 @@
 package com.taskmanager.controller;
 
-import com.taskmanager.entity.MediaHistory;
+import com.taskmanager.entity.LichSuMedia;
 import com.taskmanager.repository.MediaHistoryRepository;
 import com.taskmanager.util.UserResolver;
 import jakarta.servlet.http.HttpServletRequest;
@@ -22,7 +22,7 @@ public class MediaController {
     private final UserResolver userResolver;
 
     @GetMapping("/history")
-    public ResponseEntity<List<MediaHistory>> getMediaHistory(
+    public ResponseEntity<List<LichSuMedia>> getMediaHistory(
             @RequestParam(value = "type", required = false) String type,
             HttpServletRequest request) {
         Long userId = userResolver.resolveUserId(request);

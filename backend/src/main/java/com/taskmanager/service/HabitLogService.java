@@ -1,8 +1,8 @@
 package com.taskmanager.service;
 
 import com.taskmanager.dto.HabitLogDto;
-import com.taskmanager.entity.HabitLog;
-import com.taskmanager.entity.Task;
+import com.taskmanager.entity.CongViec;
+import com.taskmanager.entity.NhatKyThoiQuen;
 import com.taskmanager.exception.ResourceNotFoundException;
 import com.taskmanager.repository.HabitLogRepository;
 import com.taskmanager.repository.TaskRepository;
@@ -44,18 +44,18 @@ public class HabitLogService {
         if (dto.getTaskId() == null) {
             throw new IllegalArgumentException("Công việc cần check-in không hợp lệ.");
         }
-        Task task = requireOwnedTask(userId, dto.getTaskId());
+        CongViec task = requireOwnedTask(userId, dto.getTaskId());
         LocalDate checkInDate = dto.getCheckInDate() != null ? dto.getCheckInDate() : LocalDate.now(VIETNAM_ZONE);
 
-        Optional<HabitLog> existing = habitLogRepository.findByUserIdAndTaskIdAndCheckInDate(userId, dto.getTaskId(), checkInDate);
-        HabitLog logEntry;
+        Optional<NhatKyThoiQuen> existing = habitLogRepository.findByUserIdAndTaskIdAndCheckInDate(userId, dto.getTaskId(), checkInDate);
+        NhatKyThoiQuen logEntry;
 
         if (existing.isPresent()) {
             logEntry = existing.get();
             logEntry.setStatus(dto.getStatus() != null ? dto.getStatus() : "COMPLETED");
             if (dto.getNote() != null) logEntry.setNote(dto.getNote());
         } else {
-            logEntry = HabitLog.builder()
+            logEntry = NhatKyThoiQuen.builder()
                     .userId(userId)
                     .taskId(dto.getTaskId())
                     .checkInDate(checkInDate)
@@ -64,7 +64,7 @@ public class HabitLogService {
                     .build();
         }
 
-        HabitLog saved = habitLogRepository.save(logEntry);
+        NhatKyThoiQuen saved = habitLogRepository.save(logEntry);
 
         // Update task status and streak
         task.setStatus("COMPLETED".equalsIgnoreCase(saved.getStatus()) ? "COMPLETED" : "TODO");
@@ -73,11 +73,11 @@ public class HabitLogService {
         return toDto(saved);
     }
 
-    private HabitLogDto toDto(HabitLog h) {
+    private HabitLogDto toDto(NhatKyThoiQuen h) {
         String taskTitle = null;
         if (h.getTaskId() != null) {
             taskTitle = taskRepository.findByIdAndUserId(h.getTaskId(), h.getUserId())
-                    .map(Task::getTitle).orElse(null);
+                    .map(CongViec::getTitle).orElse(null);
         }
 
         return HabitLogDto.builder()
@@ -92,7 +92,7 @@ public class HabitLogService {
                 .build();
     }
 
-    private Task requireOwnedTask(Long userId, Long taskId) {
+    private CongViec requireOwnedTask(Long userId, Long taskId) {
         return taskRepository.findByIdAndUserId(taskId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy công việc #" + taskId));
     }

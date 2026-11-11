@@ -1,8 +1,8 @@
 package com.taskmanager.service;
 
 import com.taskmanager.dto.UserPreferenceDto;
-import com.taskmanager.entity.MediaHistory;
-import com.taskmanager.entity.UserPreference;
+import com.taskmanager.entity.LichSuMedia;
+import com.taskmanager.entity.CaiDatNguoiDung;
 import com.taskmanager.repository.MediaHistoryRepository;
 import com.taskmanager.repository.UserPreferenceRepository;
 import com.taskmanager.util.UploadedMediaValidator;
@@ -24,8 +24,8 @@ public class UserPreferenceService {
 
     @Transactional(readOnly = true)
     public UserPreferenceDto getPreference(Long userId) {
-        UserPreference pref = userPreferenceRepository.findByUserId(userId)
-                .orElseGet(() -> UserPreference.builder()
+        CaiDatNguoiDung pref = userPreferenceRepository.findByUserId(userId)
+                .orElseGet(() -> CaiDatNguoiDung.builder()
                         .userId(userId)
                         .workStartTime(LocalTime.of(8, 0))
                         .workEndTime(LocalTime.of(18, 0))
@@ -45,8 +45,8 @@ public class UserPreferenceService {
 
     @Transactional
     public UserPreferenceDto updatePreference(Long userId, UserPreferenceDto dto) {
-        UserPreference pref = userPreferenceRepository.findByUserId(userId)
-                .orElseGet(() -> UserPreference.builder().userId(userId).build());
+        CaiDatNguoiDung pref = userPreferenceRepository.findByUserId(userId)
+                .orElseGet(() -> CaiDatNguoiDung.builder().userId(userId).build());
 
         if (dto.getWorkStartTime() != null) {
             try {
@@ -88,7 +88,7 @@ public class UserPreferenceService {
         }
         pref.setUpdatedAt(OffsetDateTime.now());
 
-        UserPreference saved = userPreferenceRepository.save(pref);
+        CaiDatNguoiDung saved = userPreferenceRepository.save(pref);
         return toDto(saved);
     }
 
@@ -118,8 +118,8 @@ public class UserPreferenceService {
 
             java.nio.file.Files.copy(file.getInputStream(), targetPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
 
-            UserPreference pref = userPreferenceRepository.findByUserId(userId)
-                    .orElseGet(() -> UserPreference.builder().userId(userId).build());
+            CaiDatNguoiDung pref = userPreferenceRepository.findByUserId(userId)
+                    .orElseGet(() -> CaiDatNguoiDung.builder().userId(userId).build());
 
             String publicUrl = "/api/uploads/backgrounds/" + fileName;
             pref.setBackgroundUrl(publicUrl);
@@ -132,7 +132,7 @@ public class UserPreferenceService {
 
             // Lưu lịch sử hình nền/video vào CSDL để qua máy khác vẫn đồng bộ
             try {
-                mediaHistoryRepository.save(MediaHistory.builder()
+                mediaHistoryRepository.save(LichSuMedia.builder()
                         .userId(userId)
                         .mediaType("BACKGROUND_" + bgType)
                         .url(publicUrl)
@@ -156,7 +156,7 @@ public class UserPreferenceService {
         }
     }
 
-    private UserPreferenceDto toDto(UserPreference p) {
+    private UserPreferenceDto toDto(CaiDatNguoiDung p) {
         return UserPreferenceDto.builder()
                 .id(p.getId())
                 .userId(p.getUserId())

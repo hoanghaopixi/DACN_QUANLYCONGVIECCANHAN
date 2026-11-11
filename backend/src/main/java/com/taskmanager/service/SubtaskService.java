@@ -1,7 +1,7 @@
 package com.taskmanager.service;
 
 import com.taskmanager.dto.SubtaskDto;
-import com.taskmanager.entity.Subtask;
+import com.taskmanager.entity.CongViecCon;
 import com.taskmanager.exception.ResourceNotFoundException;
 import com.taskmanager.repository.SubtaskRepository;
 import com.taskmanager.repository.TaskRepository;
@@ -41,10 +41,10 @@ public class SubtaskService {
         if (dto.getOrderIndex() != null && (dto.getOrderIndex() < 0 || dto.getOrderIndex() > 10_000)) {
             throw new IllegalArgumentException("Thứ tự công việc con không hợp lệ.");
         }
-        List<Subtask> existing = subtaskRepository.findByTaskIdOrderByOrderIndexAsc(taskId);
+        List<CongViecCon> existing = subtaskRepository.findByTaskIdOrderByOrderIndexAsc(taskId);
         int nextOrder = existing.size();
 
-        Subtask subtask = Subtask.builder()
+        CongViecCon subtask = CongViecCon.builder()
                 .taskId(taskId)
                 .title(dto.getTitle().trim())
                 .isCompleted(Boolean.TRUE.equals(dto.getIsCompleted()))
@@ -57,7 +57,7 @@ public class SubtaskService {
 
     @Transactional
     public SubtaskDto updateSubtask(Long userId, Long subtaskId, SubtaskDto dto) {
-        Subtask subtask = subtaskRepository.findById(subtaskId)
+        CongViecCon subtask = subtaskRepository.findById(subtaskId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy công việc con #" + subtaskId));
         requireOwnedTask(userId, subtask.getTaskId());
 
@@ -89,7 +89,7 @@ public class SubtaskService {
 
     @Transactional
     public SubtaskDto toggleSubtask(Long userId, Long subtaskId) {
-        Subtask subtask = subtaskRepository.findById(subtaskId)
+        CongViecCon subtask = subtaskRepository.findById(subtaskId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy công việc con #" + subtaskId));
         requireOwnedTask(userId, subtask.getTaskId());
         subtask.setIsCompleted(!Boolean.TRUE.equals(subtask.getIsCompleted()));
@@ -98,7 +98,7 @@ public class SubtaskService {
 
     @Transactional
     public void deleteSubtask(Long userId, Long subtaskId) {
-        Subtask subtask = subtaskRepository.findById(subtaskId)
+        CongViecCon subtask = subtaskRepository.findById(subtaskId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy công việc con #" + subtaskId));
         requireOwnedTask(userId, subtask.getTaskId());
         subtaskRepository.deleteById(subtaskId);
@@ -110,7 +110,7 @@ public class SubtaskService {
         }
     }
 
-    private SubtaskDto mapToDto(Subtask s) {
+    private SubtaskDto mapToDto(CongViecCon s) {
         return SubtaskDto.builder()
                 .id(s.getId())
                 .taskId(s.getTaskId())

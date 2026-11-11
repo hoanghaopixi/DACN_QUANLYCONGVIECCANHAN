@@ -7,11 +7,11 @@ import com.taskmanager.dto.AutoScheduleDto;
 import com.taskmanager.dto.SubtaskDto;
 import com.taskmanager.dto.request.AiParseTaskRequest;
 import com.taskmanager.dto.response.AiParseTaskResponse;
-import com.taskmanager.entity.AiSchedulingLog;
-import com.taskmanager.entity.Subtask;
-import com.taskmanager.entity.Task;
-import com.taskmanager.entity.TimeBlock;
-import com.taskmanager.entity.UserPreference;
+import com.taskmanager.entity.CaiDatNguoiDung;
+import com.taskmanager.entity.CongViec;
+import com.taskmanager.entity.CongViecCon;
+import com.taskmanager.entity.KhoiThoiGian;
+import com.taskmanager.entity.NhatKyAi;
 import com.taskmanager.repository.*;
 import com.taskmanager.service.AiService;
 import lombok.extern.slf4j.Slf4j;
@@ -883,13 +883,13 @@ public class AiServiceImpl implements AiService {
             OffsetDateTime windowStart = start.minusDays(2);
             OffsetDateTime windowEnd = end.plusDays(2);
 
-            List<TimeBlock> existingBlocks = timeBlockRepository.findByUserIdAndStartTimeBetween(userId, windowStart,
+            List<KhoiThoiGian> existingBlocks = timeBlockRepository.findByUserIdAndStartTimeBetween(userId, windowStart,
                     windowEnd);
 
             if (existingBlocks != null && !existingBlocks.isEmpty()) {
-                existingBlocks.sort(Comparator.comparing(TimeBlock::getStartTime));
+                existingBlocks.sort(Comparator.comparing(KhoiThoiGian::getStartTime));
 
-                for (TimeBlock b : existingBlocks) {
+                for (KhoiThoiGian b : existingBlocks) {
                     if (b.getStartTime() != null && b.getEndTime() != null) {
                         // CẢI TIẾN: Dùng toInstant() để so sánh chuẩn xác tuyệt đối bất kể offset
                         if (start.toInstant().isBefore(b.getEndTime().toInstant()) 
@@ -956,7 +956,7 @@ public class AiServiceImpl implements AiService {
     /**
      * Tìm khung giờ trống kế tiếp trong ngày làm việc (07:00 - 20:00, tránh nghỉ trưa 12:00 - 13:00)
      */
-    private OffsetDateTime findNextAvailableFreeSlot(List<TimeBlock> existingBlocks, OffsetDateTime candidateStart, int durationMinutes) {
+    private OffsetDateTime findNextAvailableFreeSlot(List<KhoiThoiGian> existingBlocks, OffsetDateTime candidateStart, int durationMinutes) {
         OffsetDateTime candidate = candidateStart.atZoneSameInstant(VIETNAM_ZONE).toOffsetDateTime();
 
         // Đảm bảo không rơi vào giờ nghỉ trưa (12:00 - 13:00)
@@ -985,7 +985,7 @@ public class AiServiceImpl implements AiService {
             }
 
             if (existingBlocks != null) {
-                for (TimeBlock b : existingBlocks) {
+                for (KhoiThoiGian b : existingBlocks) {
                     if (b.getStartTime() != null && b.getEndTime() != null) {
                         OffsetDateTime bStartVn = b.getStartTime().atZoneSameInstant(VIETNAM_ZONE).toOffsetDateTime();
                         OffsetDateTime bEndVn = b.getEndTime().atZoneSameInstant(VIETNAM_ZONE).toOffsetDateTime();
@@ -1101,7 +1101,7 @@ public class AiServiceImpl implements AiService {
     @Transactional
     public List<SubtaskDto> breakdownTask(Long userId, Long taskId) {
         long startTime = System.currentTimeMillis();
-        Task task = taskRepository.findById(taskId)
+        CongViec task = taskRepository.findById(taskId)
                 .filter(item -> Objects.equals(item.getUserId(), userId))
                 .orElseThrow(() -> new com.taskmanager.exception.ResourceNotFoundException("Không tìm thấy công việc #" + taskId));
 
@@ -1143,14 +1143,14 @@ public class AiServiceImpl implements AiService {
                             String stTitle = n.path("title").asString("").trim();
                             int dur = n.path("durationMinutes").asInt(15);
                             if (!stTitle.isEmpty() && stTitle.length() <= 255 && dur >= 1 && dur <= 1440) {
-                                Subtask subtask = Subtask.builder()
+                                CongViecCon subtask = CongViecCon.builder()
                                         .taskId(taskId)
                                         .title(stTitle)
                                         .isCompleted(false)
                                         .durationMinutes(dur)
                                         .orderIndex(order++)
                                         .build();
-                                Subtask saved = subtaskRepository.save(subtask);
+                                CongViecCon saved = subtaskRepository.save(subtask);
                                 result.add(SubtaskDto.builder()
                                         .id(saved.getId())
                                         .taskId(taskId)
@@ -1199,14 +1199,14 @@ public class AiServiceImpl implements AiService {
             int stepDur = Math.max((task.getEstimatedDurationMinutes() != null ? task.getEstimatedDurationMinutes() : 60) / defaultTitles.size(), 15);
             int order = 0;
             for (String title : defaultTitles) {
-                Subtask subtask = Subtask.builder()
+                CongViecCon subtask = CongViecCon.builder()
                         .taskId(taskId)
                         .title(title)
                         .isCompleted(false)
                         .durationMinutes(stepDur)
                         .orderIndex(order++)
                         .build();
-                Subtask saved = subtaskRepository.save(subtask);
+                CongViecCon saved = subtaskRepository.save(subtask);
                 result.add(SubtaskDto.builder()
                         .id(saved.getId())
                         .taskId(taskId)
@@ -1221,7 +1221,7 @@ public class AiServiceImpl implements AiService {
 
         // Log to nhatkyai
         try {
-            AiSchedulingLog aiLog = AiSchedulingLog.builder()
+            NhatKyAi aiLog = NhatKyAi.builder()
                     .userId(userId)
                     .actionType("TASK_BREAKDOWN")
                     .promptInput("TASK_BREAKDOWN #" + taskId)
@@ -1356,7 +1356,7 @@ public class AiServiceImpl implements AiService {
 
         // Log to nhatkyai
         try {
-            AiSchedulingLog aiLog = AiSchedulingLog.builder()
+            NhatKyAi aiLog = NhatKyAi.builder()
                     .userId(userId)
                     .actionType("TASK_BREAKDOWN_PREVIEW")
                     .promptInput("TASK_BREAKDOWN_PROMPT")
@@ -1391,7 +1391,7 @@ public class AiServiceImpl implements AiService {
                 .distinct()
                 .toList();
 
-        UserPreference pref = userPreferenceRepository.findByUserId(userId).orElse(null);
+        CaiDatNguoiDung pref = userPreferenceRepository.findByUserId(userId).orElse(null);
         ZoneId scheduleZone = resolveScheduleZone(pref);
         LocalDate today = LocalDate.now(scheduleZone);
         LocalDate targetDate;
@@ -1438,17 +1438,17 @@ public class AiServiceImpl implements AiService {
         // duplicate schedules across dates without loading the user's full calendar into memory.
         OffsetDateTime calendarDayStart = targetDate.atStartOfDay(scheduleZone).toOffsetDateTime();
         OffsetDateTime calendarDayEnd = targetDate.plusDays(1).atStartOfDay(scheduleZone).toOffsetDateTime();
-        List<TimeBlock> existingBlocks = timeBlockRepository
+        List<KhoiThoiGian> existingBlocks = timeBlockRepository
                 .findByUserIdAndStartTimeBeforeAndEndTimeAfter(userId,
                         calendarDayEnd.plusMinutes(bufferMinutes), calendarDayStart.minusMinutes(bufferMinutes))
                 .stream()
                 .filter(this::isActiveTimeBlock)
-                .sorted(Comparator.comparing(TimeBlock::getStartTime))
+                .sorted(Comparator.comparing(KhoiThoiGian::getStartTime))
                 .toList();
         Set<Long> alreadyScheduledTaskIds = new HashSet<>(timeBlockRepository.findScheduledTaskIdsByUserId(userId));
 
         // Get candidate tasks
-        List<Task> candidateTasks;
+        List<CongViec> candidateTasks;
         if (restrictToTaskIds && requestedTaskIds.isEmpty()) {
             candidateTasks = List.of();
         } else if (restrictToTaskIds) {
@@ -1487,9 +1487,9 @@ public class AiServiceImpl implements AiService {
                 : new ArrayList<>();
 
         // Fixed tasks retain their exact time. They are never moved by the flexible scheduler.
-        List<Task> fixedTasks = candidateTasks.stream().filter(this::isFixedTask).toList();
+        List<CongViec> fixedTasks = candidateTasks.stream().filter(this::isFixedTask).toList();
         List<ScheduleSlot> acceptedFixedSlots = new ArrayList<>();
-        for (Task task : fixedTasks) {
+        for (CongViec task : fixedTasks) {
             OffsetDateTime fixedStart = task.getFixedStartTime();
             OffsetDateTime fixedEnd = task.getFixedEndTime();
             if (fixedStart == null || fixedEnd == null) continue;
@@ -1519,12 +1519,12 @@ public class AiServiceImpl implements AiService {
         ScheduleSlot peakWindow = isWorkDay
                 ? resolvePeakWindow(pref, targetDate, scheduleZone, workStart, workEnd)
                 : null;
-        List<Task> flexibleTasks = candidateTasks.stream()
+        List<CongViec> flexibleTasks = candidateTasks.stream()
                 .filter(task -> !isFixedTask(task))
                 .limit(500)
                 .toList();
 
-        for (Task task : flexibleTasks) {
+        for (CongViec task : flexibleTasks) {
             Integer configuredDuration = task.getEstimatedDurationMinutes();
             int duration = configuredDuration == null || configuredDuration == 0 ? 45 : configuredDuration;
             if (duration < 1 || duration > 1440 || freeSlots.isEmpty()) {
@@ -1548,12 +1548,12 @@ public class AiServiceImpl implements AiService {
         proposals.sort(Comparator.comparing(AutoScheduleDto.ScheduledTaskProposal::getStartTime));
 
         if (Boolean.TRUE.equals(request.getApplyImmediately())) {
-            Map<Long, Task> tasksById = candidateTasks.stream().collect(Collectors.toMap(
-                    Task::getId, task -> task, (first, ignored) -> first));
+            Map<Long, CongViec> tasksById = candidateTasks.stream().collect(Collectors.toMap(
+                    CongViec::getId, task -> task, (first, ignored) -> first));
             for (AutoScheduleDto.ScheduledTaskProposal proposal : proposals) {
-                Task task = tasksById.get(proposal.getTaskId());
+                CongViec task = tasksById.get(proposal.getTaskId());
                 if (task == null) continue;
-                timeBlockRepository.save(TimeBlock.builder()
+                timeBlockRepository.save(KhoiThoiGian.builder()
                         .userId(userId)
                         .taskId(task.getId())
                         .title(task.getTitle())
@@ -1573,7 +1573,7 @@ public class AiServiceImpl implements AiService {
                 remainingUnscheduled, bufferMinutes, pref);
 
         try {
-            AiSchedulingLog aiLog = AiSchedulingLog.builder()
+            NhatKyAi aiLog = NhatKyAi.builder()
                     .userId(userId)
                     .actionType("AUTO_SCHEDULE")
                     .promptInput("AUTO_SCHEDULE " + targetDate + " tasks=" + proposals.size())
@@ -1594,7 +1594,7 @@ public class AiServiceImpl implements AiService {
                 .build();
     }
 
-    private ZoneId resolveScheduleZone(UserPreference preference) {
+    private ZoneId resolveScheduleZone(CaiDatNguoiDung preference) {
         if (preference != null && preference.getTimeZone() != null && !preference.getTimeZone().isBlank()) {
             try {
                 return ZoneId.of(preference.getTimeZone().trim());
@@ -1665,7 +1665,7 @@ public class AiServiceImpl implements AiService {
         return clippedEnd.isAfter(clippedStart) ? new ScheduleSlot(clippedStart, clippedEnd) : null;
     }
 
-    private boolean isActiveTimeBlock(TimeBlock block) {
+    private boolean isActiveTimeBlock(KhoiThoiGian block) {
         if (block.getStartTime() == null || block.getEndTime() == null
                 || !block.getEndTime().isAfter(block.getStartTime())) {
             return false;
@@ -1674,29 +1674,29 @@ public class AiServiceImpl implements AiService {
         return !Set.of("CANCELLED", "CANCELED", "DELETED").contains(status);
     }
 
-    private boolean isTaskRelevantOnDate(Task task, LocalDate date, ZoneId zone) {
+    private boolean isTaskRelevantOnDate(CongViec task, LocalDate date, ZoneId zone) {
         if (!isFixedTask(task)) return true;
         OffsetDateTime fixedAnchor = task.getFixedStartTime() != null ? task.getFixedStartTime() : task.getFixedEndTime();
         return fixedAnchor == null || fixedAnchor.atZoneSameInstant(zone).toLocalDate().equals(date);
     }
 
-    private boolean isFixedTask(Task task) {
+    private boolean isFixedTask(CongViec task) {
         return Boolean.TRUE.equals(task.getIsFixedTime())
                 || task.getFixedStartTime() != null
                 || task.getFixedEndTime() != null;
     }
 
-    private Comparator<Task> buildTaskPriorityComparator(LocalDate targetDate, ZoneId zone) {
-        return Comparator.comparingInt((Task task) -> deadlineRank(task, targetDate, zone))
+    private Comparator<CongViec> buildTaskPriorityComparator(LocalDate targetDate, ZoneId zone) {
+        return Comparator.comparingInt((CongViec task) -> deadlineRank(task, targetDate, zone))
                 .thenComparingInt(task -> getQuadrantRank(task.getEisenhowerQuadrant(), task.getPriority()))
                 .thenComparingInt(task -> priorityRank(task.getPriority()))
                 .thenComparing(task -> task.getDueDate() != null ? task.getDueDate().toInstant() : Instant.MAX)
                 .thenComparing(Comparator.comparingInt(this::normalizedTaskDuration).reversed())
-                .thenComparing(Task::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()))
-                .thenComparing(Task::getId, Comparator.nullsLast(Comparator.naturalOrder()));
+                .thenComparing(CongViec::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(CongViec::getId, Comparator.nullsLast(Comparator.naturalOrder()));
     }
 
-    private int deadlineRank(Task task, LocalDate targetDate, ZoneId zone) {
+    private int deadlineRank(CongViec task, LocalDate targetDate, ZoneId zone) {
         if ("OVERDUE".equalsIgnoreCase(task.getStatus())) return 0;
         if (task.getDueDate() == null) return 6;
         long daysUntilDeadline = ChronoUnit.DAYS.between(
@@ -1717,19 +1717,19 @@ public class AiServiceImpl implements AiService {
         return 2;
     }
 
-    private int normalizedTaskDuration(Task task) {
+    private int normalizedTaskDuration(CongViec task) {
         Integer duration = task.getEstimatedDurationMinutes();
         return duration != null && duration > 0 && duration <= 1440 ? duration : 45;
     }
 
-    private boolean isFocusTask(Task task) {
+    private boolean isFocusTask(CongViec task) {
         return getQuadrantRank(task.getEisenhowerQuadrant(), task.getPriority()) <= 2
                 || "URGENT".equalsIgnoreCase(task.getPriority())
                 || "HIGH".equalsIgnoreCase(task.getPriority());
     }
 
     private ScheduleSlot resolvePeakWindow(
-            UserPreference preference,
+            CaiDatNguoiDung preference,
             LocalDate date,
             ZoneId zone,
             LocalTime workStart,
@@ -1764,10 +1764,10 @@ public class AiServiceImpl implements AiService {
             OffsetDateTime dayStart,
             OffsetDateTime dayEnd,
             ScheduleSlot breakWindow,
-            List<TimeBlock> existingBlocks,
+            List<KhoiThoiGian> existingBlocks,
             int bufferMinutes) {
         List<ScheduleSlot> occupied = new ArrayList<>();
-        for (TimeBlock block : existingBlocks) {
+        for (KhoiThoiGian block : existingBlocks) {
             OffsetDateTime paddedStart = block.getStartTime().minusMinutes(bufferMinutes);
             OffsetDateTime blockStart = paddedStart.isAfter(dayStart) ? paddedStart : dayStart;
             OffsetDateTime bufferedEnd = block.getEndTime().plusMinutes(bufferMinutes);
@@ -1847,7 +1847,7 @@ public class AiServiceImpl implements AiService {
         freeSlots.addAll(remaining);
     }
 
-    private boolean hasOverlapBlocks(List<TimeBlock> blocks, OffsetDateTime start, OffsetDateTime end) {
+    private boolean hasOverlapBlocks(List<KhoiThoiGian> blocks, OffsetDateTime start, OffsetDateTime end) {
         return blocks.stream().anyMatch(block -> overlaps(block.getStartTime(), block.getEndTime(), start, end));
     }
 
@@ -1861,7 +1861,7 @@ public class AiServiceImpl implements AiService {
     }
 
     private AutoScheduleDto.ScheduledTaskProposal buildScheduleProposal(
-            Task task,
+            CongViec task,
             OffsetDateTime start,
             OffsetDateTime end,
             Map<Long, String> categoryTypesById,
@@ -1893,7 +1893,7 @@ public class AiServiceImpl implements AiService {
             int scheduledCount,
             int remainingCount,
             int bufferMinutes,
-            UserPreference preference) {
+            CaiDatNguoiDung preference) {
         String dateText = date.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
         if (!workDay) {
             return String.format("Ngày %s không nằm trong ngày làm việc đã cài đặt. Lịch cố định được giữ nguyên; không xếp thêm việc linh hoạt.", dateText);
@@ -1913,7 +1913,7 @@ public class AiServiceImpl implements AiService {
         return 2;
     }
 
-    private String generateRationale(Task task, OffsetDateTime slot, ZoneId zone) {
+    private String generateRationale(CongViec task, OffsetDateTime slot, ZoneId zone) {
         String quad = task.getEisenhowerQuadrant() != null ? task.getEisenhowerQuadrant().toUpperCase() : "SCHEDULE";
         int hour = slot.getHour();
         String timeOfDay = (hour < 12) ? "buổi sáng" : (hour < 17) ? "buổi chiều" : "buổi tối";
