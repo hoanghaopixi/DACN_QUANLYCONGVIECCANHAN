@@ -34,6 +34,7 @@ interface WeeklyCalendarProps {
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 // 60px per hour = exact 1px per minute
 const HOUR_HEIGHT = 60;
+const TOTAL_GRID_HEIGHT = 24 * HOUR_HEIGHT + 24; // 1464px (24 hours * 60px + 24px end label spacer)
 
 const getBaseWeekDays = () => {
   const now = new Date();
@@ -929,27 +930,46 @@ export default function WeeklyCalendar({
                     const colWidthPercent = 100 / totalCols;
                     const leftPercent = colIndex * colWidthPercent;
 
-                    // Tính toán độ scale linh động, vừa khít nội dung khi hover (đảm bảo không bao giờ tràn mép)
+                    // Tính toán độ scale linh động, vừa khít nội dung khi hover (đảm bảo không bao giờ tràn mép ở mọi góc)
                     let calculatedTop = top;
+                    let calculatedBottom: string | undefined = undefined;
                     let calculatedLeft: string | undefined = '3px';
                     let calculatedRight: string | undefined = 'auto';
                     let calculatedWidth = 'calc(100% - 6px)';
                     // CHỈ card ở cột cuối cùng sát mép phải (Chủ Nhật hoặc cột ngoài cùng bên phải) mới hiển thị lệch vào
                     const isRightmostEdge = DAYS.length > 1 && dayIndex === DAYS.length - 1;
-                    const hoverCardWidth = 220;
+                    const hoverCardWidth = 236;
 
                     const isScheduleUnlocked = isPrivacyUnlocked || Boolean(unlockedScheduleIds && unlockedScheduleIds.has(block.id));
                     const isLockedSchedule = Boolean(block.isLocked && !isScheduleUnlocked);
+                    // Phát hiện nếu card nằm sát đáy ngày (sau ~20:40 hoặc đáy task >= 1340px)
+                    const isNearBottom = top >= 1240 || (top + height >= 1340);
 
                     if (isHovered && !isLockedSchedule) {
-                      calculatedTop = Math.max(0, top - 4);
+                      if (isNearBottom) {
+                        // Neo ở cạnh dưới để thẻ TỰ ĐỘNG NỞ LÊN TRÊN (upwards), 100% không bao giờ tràn đáy lưới hoặc bị thanh footer che khuất!
+                        const taskBottom = top + height;
+                        const bottomOffset = Math.max(28, TOTAL_GRID_HEIGHT - taskBottom);
+                        calculatedBottom = `${bottomOffset}px`;
+                      } else {
+                        // Neo ở cạnh trên (tối thiểu 2px để không bao giờ tràn lên đỉnh thanh header ngày)
+                        calculatedTop = Math.max(2, top - 4);
+                      }
                       calculatedWidth = `${hoverCardWidth}px`;
 
                       if (DAYS.length === 1) {
                         // Chế độ xem 1 ngày: cột rất rộng
                         if (totalCols > 1) {
-                          calculatedLeft = `calc(${leftPercent}% + 2px)`;
-                          calculatedRight = 'auto';
+                          if (colIndex === totalCols - 1) {
+                            calculatedRight = '2px';
+                            calculatedLeft = 'auto';
+                          } else if (colIndex === 0) {
+                            calculatedLeft = '2px';
+                            calculatedRight = 'auto';
+                          } else {
+                            calculatedLeft = `calc(${leftPercent}% + 2px)`;
+                            calculatedRight = 'auto';
+                          }
                           calculatedWidth = `max(calc(${colWidthPercent}% - 4px), ${hoverCardWidth}px)`;
                         } else {
                           calculatedLeft = '3px';
@@ -1256,7 +1276,8 @@ export default function WeeklyCalendar({
                         }}
                         className={`event-block ${focusedTaskId === block.id ? 'is-search-target' : ''} ${isShortBlock ? 'short-block' : ''} ${isSuperTiny ? 'super-tiny-block' : ''} ${isHovered ? 'is-hovered' : ''} ${isDragging ? 'is-dragging' : ''}`}
                         style={{
-                          top: `${calculatedTop}px`,
+                          top: isHovered && isNearBottom ? 'auto' : `${calculatedTop}px`,
+                          bottom: isHovered && isNearBottom ? calculatedBottom : 'auto',
                           height: isHovered ? 'auto' : `${height}px`,
                           minHeight: undefined,
                           left: calculatedLeft,
@@ -1489,10 +1510,12 @@ export default function WeeklyCalendar({
                             style={{
                               position: 'absolute',
                               ...(DAYS.length === 1
-                                ? { top: 'calc(100% + 6px)', left: 0 }
+                                ? (isNearBottom || top > 1050
+                                    ? { bottom: 'calc(100% + 6px)', left: 0 }
+                                    : { top: 'calc(100% + 6px)', left: 0 })
                                 : dayIndex >= DAYS.length - 2
-                                ? { right: 'calc(100% + 6px)', ...(top > 1050 ? { bottom: 0 } : { top: 0 }) }
-                                : { left: 'calc(100% + 6px)', ...(top > 1050 ? { bottom: 0 } : { top: 0 }) }),
+                                ? { right: 'calc(100% + 6px)', ...(isNearBottom || top > 1050 ? { bottom: 0 } : { top: 0 }) }
+                                : { left: 'calc(100% + 6px)', ...(isNearBottom || top > 1050 ? { bottom: 0 } : { top: 0 }) }),
                               width: 272,
                               zIndex: 99999,
                               background: 'var(--surface)',
