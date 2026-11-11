@@ -594,8 +594,8 @@ export default function MonthCalendar({
                       flexShrink: 0,
                       cursor: 'pointer',
                       userSelect: 'none',
-                      boxSizing: 'border-box',
-                      transition: 'all 0.15s ease',
+                      transition: 'background 0.15s ease, border-color 0.15s ease',
+                      transform: 'none',
                       border: '1px solid color-mix(in srgb, var(--primary) 32%, transparent)',
                     }}
                   >

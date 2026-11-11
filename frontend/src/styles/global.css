@@ -2764,14 +2764,16 @@ ol {
   background: color-mix(in srgb, var(--primary) 22%, var(--surface));
   color: var(--primary);
   border: 1px solid color-mix(in srgb, var(--primary) 32%, transparent);
-  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease !important;
+  transform: none !important;
 }
 
 .month-more-tasks-badge:hover {
-  background: color-mix(in srgb, var(--primary) 35%, var(--surface)) !important;
+  background: color-mix(in srgb, var(--primary) 32%, var(--surface)) !important;
   color: var(--primary) !important;
-  transform: scale(1.04);
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary) 30%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 50%, transparent) !important;
+  transform: none !important;
+  box-shadow: none !important;
 }
 
 [data-theme='dark'] .month-more-tasks-badge {
@@ -2781,8 +2783,11 @@ ol {
 }
 
 [data-theme='dark'] .month-more-tasks-badge:hover {
-  background: color-mix(in srgb, var(--primary) 45%, transparent) !important;
+  background: color-mix(in srgb, var(--primary) 38%, transparent) !important;
   color: #EDE9FE !important;
+  border-color: rgba(167, 139, 250, 0.5) !important;
+  transform: none !important;
+  box-shadow: none !important;
 }
 
 .event-note {
