@@ -2616,7 +2616,6 @@ ol {
 
 .event-block:hover {
   box-shadow: var(--shadow-md);
-  transform: translateY(-1px);
   z-index: 25;
 }
 
@@ -2686,13 +2685,13 @@ ol {
 }
 
 /* ─── THẺ QUÁ HẸP (30 PHÚT HOẶC <= 44px): HIỂN THỊ ĐỦ 2 DÒNG KHÔNG BỊ CẮT CHỮ ─── */
-.event-block.short-block:not(:hover):not(.is-hovered) {
+.event-block.short-block:not(.is-hovered) {
   padding: 2px 7px !important;
   gap: 1px !important;
   justify-content: center !important;
 }
 
-.event-block.short-block:not(:hover):not(.is-hovered) .event-title {
+.event-block.short-block:not(.is-hovered) .event-title {
   font-size: 0.73rem !important;
   line-height: 1.28 !important;
   white-space: nowrap !important;
@@ -2704,7 +2703,7 @@ ol {
   display: block !important;
 }
 
-.event-block.short-block:not(:hover):not(.is-hovered) .event-time {
+.event-block.short-block:not(.is-hovered) .event-time {
   font-size: 0.64rem !important;
   line-height: 1.15 !important;
   white-space: nowrap !important;
@@ -2718,14 +2717,13 @@ ol {
 
 /* ─── THẺ SIÊU NHỎ & HOVER NHÔ 4 PHÍA ─── */
 /* Thẻ cực ngắn (dưới 26px) mới ẩn tạm thời gian và ghi chú khi chưa hover */
-.event-block.super-tiny-block:not(:hover):not(.is-hovered) .event-time,
-.event-block.super-tiny-block:not(:hover):not(.is-hovered) .event-note,
-.event-block.super-tiny-block:not(:hover):not(.is-hovered) .event-status {
+.event-block.super-tiny-block:not(.is-hovered) .event-time,
+.event-block.super-tiny-block:not(.is-hovered) .event-note,
+.event-block.super-tiny-block:not(.is-hovered) .event-status {
   display: none !important;
 }
 
 /* KHI HOVER LÊN THẺ: TỰ ĐỘNG NHÔ RỘNG VỪA ĐỦ NỘI DUNG & BUTTONS KHÔNG DƯ THỪA (NGOẠI TRỪ THẺ ĐÃ KHÓA) */
-.event-block:not(.locked-schedule-card):hover,
 .event-block:not(.locked-schedule-card).is-hovered {
   height: auto !important;
   min-height: 0 !important;
@@ -2736,10 +2734,9 @@ ol {
   z-index: 100 !important;
   box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.28), 0 6px 14px -2px rgba(0, 0, 0, 0.14), 0 0 0 1px rgba(255, 255, 255, 0.8);
   border-radius: var(--r-md);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.event-block:hover .event-title,
 .event-block.is-hovered .event-title {
   white-space: normal;
   display: -webkit-box;
@@ -2749,7 +2746,6 @@ ol {
   margin-bottom: 2px;
 }
 
-.event-block:hover .event-time,
 .event-block.is-hovered .event-time {
   opacity: 1;
 }

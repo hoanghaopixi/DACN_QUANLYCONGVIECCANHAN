@@ -181,11 +181,41 @@ export default function WeeklyCalendar({
   const [draggingBlockId, setDraggingBlockId] = useState<number | null>(null);
   const [activeLockedBlockId, setActiveLockedBlockId] = useState<number | null>(null);
   const [activeLockedBlockRect, setActiveLockedBlockRect] = useState<DOMRect | null>(null);
+  const hoverLeaveTimerRef = useRef<number | null>(null);
+
+  const clearHoverLeaveTimer = () => {
+    if (hoverLeaveTimerRef.current !== null) {
+      window.clearTimeout(hoverLeaveTimerRef.current);
+      hoverLeaveTimerRef.current = null;
+    }
+  };
+
+  const handleBlockMouseEnter = (blockId: number, rect?: DOMRect) => {
+    clearHoverLeaveTimer();
+    setHoveredBlockId(blockId);
+    if (rect) setHoveredBlockRect(rect);
+  };
+
+  const handleBlockMouseLeave = (blockId: number) => {
+    clearHoverLeaveTimer();
+    hoverLeaveTimerRef.current = window.setTimeout(() => {
+      setHoveredBlockId((curr) => (curr === blockId ? null : curr));
+      setHoveredBlockRect(null);
+      hoverLeaveTimerRef.current = null;
+    }, 120);
+  };
+
+  useEffect(() => {
+    return () => {
+      clearHoverLeaveTimer();
+    };
+  }, []);
 
   useEffect(() => {
     const scrollEl = scrollRef.current;
     if (!scrollEl) return;
     const handleScroll = () => {
+      clearHoverLeaveTimer();
       if (hoveredBlockId !== null) {
         setHoveredBlockId(null);
         setHoveredBlockRect(null);
@@ -947,15 +977,15 @@ export default function WeeklyCalendar({
 
                     if (isHovered && !isLockedSchedule) {
                       if (isNearBottom) {
-                        // Neo ở cạnh dưới để thẻ TỰ ĐỘNG NỞ LÊN TRÊN (upwards), 100% không bao giờ tràn đáy lưới hoặc bị thanh footer che khuất!
+                        // Neo ở cạnh dưới để thẻ TỰ ĐỘNG NỞ LÊN TRÊN (upwards)
+                        // Giữ nguyên cạnh đáy của thẻ tại taskBottom để con trỏ chuột không bao giờ bị tuột ra ngoài mép đáy!
                         const taskBottom = top + height;
-                        const bottomOffset = Math.max(28, TOTAL_GRID_HEIGHT - taskBottom);
+                        const bottomOffset = Math.max(24, TOTAL_GRID_HEIGHT - taskBottom);
                         calculatedBottom = `${bottomOffset}px`;
                       } else {
-                        // Neo ở cạnh trên (tối thiểu 2px để không bao giờ tràn lên đỉnh thanh header ngày)
-                        calculatedTop = Math.max(2, top - 4);
+                        // Neo ở cạnh trên: giữ nguyên top để con trỏ chuột không bị trượt ra ngoài mép đỉnh!
+                        calculatedTop = top;
                       }
-                      calculatedWidth = `${hoverCardWidth}px`;
 
                       if (DAYS.length === 1) {
                         // Chế độ xem 1 ngày: cột rất rộng
@@ -978,19 +1008,29 @@ export default function WeeklyCalendar({
                         }
                       } else if (isRightmostEdge) {
                         // CHỈ CARD CUỐI BÊN PHẢI (Chủ Nhật sát mép phải):
-                        // Luôn neo mép phải '2px', mở rộng lệch sang TRÁI -> 100% không bao giờ tràn mép phải lịch!
+                        // Luôn neo mép phải '2px', mở rộng lệch sang TRÁI nếu hẹp hơn 236px, không bao giờ co hẹp hơn cột!
                         calculatedRight = '2px';
                         calculatedLeft = 'auto';
+                        calculatedWidth = `max(calc(100% - 5px), ${hoverCardWidth}px)`;
                       } else if (dayIndex === 0) {
                         // Sát mép trái (Thứ Hai):
-                        // Luôn neo mép trái '2px', mở rộng sang PHẢI -> 100% không bao giờ tràn vào cột giờ bên trái!
+                        // Luôn neo mép trái '2px', mở rộng sang PHẢI nếu hẹp hơn 236px, không bao giờ co hẹp hơn cột!
                         calculatedLeft = '2px';
                         calculatedRight = 'auto';
+                        calculatedWidth = `max(calc(100% - 5px), ${hoverCardWidth}px)`;
                       } else {
                         // Tất cả các ngày ở giữa (Thứ Ba, Thứ Tư, Thứ Năm, Thứ Sáu, Thứ Bảy):
-                        // Căn giữa cột ngày để nở đều 2 bên, không bị lệch vào mép
-                        calculatedLeft = `calc(50% - ${hoverCardWidth / 2}px)`;
-                        calculatedRight = 'auto';
+                        if (totalCols > 1) {
+                          calculatedLeft = `calc(${leftPercent}% + 2px)`;
+                          calculatedRight = 'auto';
+                          calculatedWidth = `max(calc(${colWidthPercent}% - 4px), ${hoverCardWidth}px)`;
+                        } else {
+                          // Nếu cột rộng hơn 236px -> giữ nguyên left: 3px và width: calc(100% - 6px) để không bị hụt chuột ở mép cột!
+                          // Chỉ căn giữa nếu cột hẹp hơn 236px (nở đều ra ngoài)
+                          calculatedLeft = `min(3px, calc(50% - ${hoverCardWidth / 2}px))`;
+                          calculatedRight = 'auto';
+                          calculatedWidth = `max(calc(100% - 6px), ${hoverCardWidth}px)`;
+                        }
                       }
                     } else {
                       if (totalCols > 1) {
@@ -1068,15 +1108,14 @@ export default function WeeklyCalendar({
                             overflow: 'hidden',
                           }}
                           onMouseEnter={(e) => {
-                            setHoveredBlockId(block.id);
-                            setHoveredBlockRect(e.currentTarget.getBoundingClientRect());
+                            handleBlockMouseEnter(block.id, e.currentTarget.getBoundingClientRect());
                           }}
                           onMouseLeave={() => {
-                            setHoveredBlockId(null);
-                            setHoveredBlockRect(null);
+                            handleBlockMouseLeave(block.id);
                           }}
                           onClick={(e) => {
                             e.stopPropagation();
+                            clearHoverLeaveTimer();
                             const rect = e.currentTarget.getBoundingClientRect();
                             setActiveLockedBlockId(block.id);
                             setActiveLockedBlockRect(rect);
@@ -1284,14 +1323,18 @@ export default function WeeklyCalendar({
                           right: calculatedRight,
                           width: calculatedWidth,
                           minWidth: isHovered ? '236px' : undefined,
-                          maxWidth: isHovered ? '250px' : undefined,
+                          maxWidth: undefined,
                           zIndex: isDragging ? 120 : (duplicateBlockId === block.id ? 9999 : (isHovered ? 100 : 2 + colIndex)),
                           borderLeft: styles.borderLeft,
                           backgroundColor: styles.backgroundColor,
                           boxSizing: 'border-box',
                         }}
-                        onMouseEnter={() => setHoveredBlockId(block.id)}
-                        onMouseLeave={() => setHoveredBlockId(null)}
+                        onMouseEnter={(e) => {
+                          handleBlockMouseEnter(block.id, e.currentTarget.getBoundingClientRect());
+                        }}
+                        onMouseLeave={() => {
+                          handleBlockMouseLeave(block.id);
+                        }}
                         onClick={(e) => {
                           e.stopPropagation();
                           onSelectBlock(block);
