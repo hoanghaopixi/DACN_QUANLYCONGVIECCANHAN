@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Lock, Eye, EyeOff, X, CheckCircle2, Loader2, KeyRound } from 'lucide-react';
 import { authService } from '../services/authService';
 import { formatAuthErrorMessage, validatePassword } from '../utils/authValidation';
@@ -33,7 +34,16 @@ export default function PrivacyPasswordModal({
     }
   }, [isOpen]);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!isOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isOpen]);
+
+  if (!isOpen || typeof document === 'undefined') return null;
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -66,7 +76,7 @@ export default function PrivacyPasswordModal({
     }
   };
 
-  return (
+  return createPortal(
     <div
       className="privacy-modal-overlay"
       onClick={onClose}
@@ -355,7 +365,8 @@ export default function PrivacyPasswordModal({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

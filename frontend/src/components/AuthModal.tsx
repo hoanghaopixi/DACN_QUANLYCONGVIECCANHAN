@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Lock, Mail, User, Eye, EyeOff, Sparkles } from 'lucide-react';
 import { authService } from '../services/authService';
 import { validateLoginForm, validateRegisterForm, formatAuthErrorMessage } from '../utils/authValidation';
@@ -21,7 +22,16 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!isOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isOpen]);
+
+  if (!isOpen || typeof document === 'undefined') return null;
 
   const switchMode = (newMode: 'login' | 'register') => {
     setMode(newMode);
@@ -94,7 +104,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
     }
   };
 
-  return (
+  return createPortal(
     <div
       style={{
         position: 'fixed',
@@ -430,6 +440,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
           </button>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

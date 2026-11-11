@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { AlertTriangle, Trash2, X } from 'lucide-react';
 
 interface ConfirmModalProps {
@@ -27,13 +29,24 @@ export default function ConfirmModal({
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!isOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isOpen]);
 
-  return (
+  if (!isOpen || typeof document === 'undefined') return null;
+
+  return createPortal(
     <div
       style={{
         position: 'fixed',
         inset: 0,
+        width: '100vw',
+        height: '100vh',
         backgroundColor: 'rgba(15, 23, 42, 0.55)',
         backdropFilter: 'blur(4px)',
         zIndex: 10000,
@@ -41,6 +54,7 @@ export default function ConfirmModal({
         alignItems: 'center',
         justifyContent: 'center',
         padding: 20,
+        boxSizing: 'border-box',
         animation: 'fadeIn 0.15s ease-out',
       }}
       onClick={onCancel}
@@ -210,6 +224,7 @@ export default function ConfirmModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -25,10 +25,15 @@ export default function AiPrivacyModal({
     if (isOpen) {
       const currentAllowed = aiPrivacyService.getAllowedWorkspaceIds(workspaces);
       setAllowedIds(currentAllowed);
+      const prevOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = prevOverflow;
+      };
     }
   }, [isOpen, workspaces]);
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === 'undefined') return null;
 
   const handleToggle = (wsId: number) => {
     const isNowAllowed = aiPrivacyService.toggleWorkspace(wsId, workspaces);

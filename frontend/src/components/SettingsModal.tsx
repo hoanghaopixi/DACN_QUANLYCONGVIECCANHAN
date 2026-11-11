@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X, User, Mail, Phone, ShieldCheck, Clock,
   Sliders, Save, CheckCircle2, Moon, Sun
@@ -35,7 +36,16 @@ export default function SettingsModal({
   const [newPassword, setNewPassword] = useState('');
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!isOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isOpen]);
+
+  if (!isOpen || typeof document === 'undefined') return null;
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,7 +84,7 @@ export default function SettingsModal({
     { id: 'SUN', label: 'CN' },
   ];
 
-  return (
+  return createPortal(
     <div
       style={{
         position: 'fixed',
@@ -582,6 +592,7 @@ export default function SettingsModal({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

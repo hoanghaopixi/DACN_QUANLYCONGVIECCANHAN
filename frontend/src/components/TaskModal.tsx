@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X, Trash2, AlertTriangle, Sparkles,
   CheckSquare, Loader2, Flame, CheckCircle2, Circle, EyeOff
@@ -120,7 +121,16 @@ export default function TaskModal({
     setOffHoursWarning(null);
   }, [initialData, isOpen]);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!isOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isOpen]);
+
+  if (!isOpen || typeof document === 'undefined') return null;
 
   const doSaveTask = async () => {
     const fullStartTime = `${date}T${startTime}:00+07:00`;
@@ -277,7 +287,7 @@ export default function TaskModal({
   const completedSubtasksCount = subtasks.filter((s) => s.isCompleted).length;
   const subtasksProgress = subtasks.length > 0 ? Math.round((completedSubtasksCount / subtasks.length) * 100) : 0;
 
-  return (
+  return createPortal(
     <div className="task-modal-overlay">
       <div className="task-modal-shell">
         {/* Modal Header */}
@@ -838,6 +848,7 @@ export default function TaskModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

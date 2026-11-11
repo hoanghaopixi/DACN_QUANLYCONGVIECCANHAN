@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Tag, Trash2, AlertTriangle } from 'lucide-react';
 import { Category } from '../types';
 
@@ -47,7 +48,16 @@ export default function CategoryModal({
     }
   }, [category, isOpen]);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!isOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isOpen]);
+
+  if (!isOpen || typeof document === 'undefined') return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,7 +90,7 @@ export default function CategoryModal({
     }
   };
 
-  return (
+  return createPortal(
     <div
       style={{
         position: 'fixed',
@@ -427,6 +437,7 @@ export default function CategoryModal({
         </form>
       )}
     </div>
-  </div>
+  </div>,
+  document.body
   );
 }

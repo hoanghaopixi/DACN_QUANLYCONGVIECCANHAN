@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X, Sparkles, CheckCircle2,
   Loader2, Zap
@@ -62,7 +63,16 @@ export default function AutoScheduleModal({
     setPreviewContext(null);
   };
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!isOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isOpen]);
+
+  if (!isOpen || typeof document === 'undefined') return null;
 
   const isWorkspaceAllowed = aiPrivacyService.isWorkspaceAllowed(workspaceId);
 
@@ -128,7 +138,7 @@ export default function AutoScheduleModal({
     return `${s.getHours().toString().padStart(2, '0')}:${s.getMinutes().toString().padStart(2, '0')} – ${e.getHours().toString().padStart(2, '0')}:${e.getMinutes().toString().padStart(2, '0')}`;
   };
 
-  return (
+  return createPortal(
     <div
       style={{
         position: 'fixed',
@@ -452,6 +462,7 @@ export default function AutoScheduleModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
