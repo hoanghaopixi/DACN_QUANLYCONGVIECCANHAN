@@ -462,23 +462,80 @@ export default function MonthCalendar({
                 )}
               </div>
 
-              {/* Day Tasks List (Chips) */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, overflowY: 'hidden', minWidth: 0, width: '100%' }}>
-                {dayTasks.slice(0, 3).map((task) => {
-                  const color = getCategoryColor(task.categoryType, task.colorOverride);
-                  const start = new Date(task.startTime);
-                  const timeStr = `${start.getHours().toString().padStart(2, '0')}:${start.getMinutes().toString().padStart(2, '0')}`;
-                  const isTaskLocked = Boolean(task.isLocked && !isPrivacyUnlocked && !(unlockedScheduleIds && unlockedScheduleIds.has(task.id)));
-                  if (isTaskLocked) {
+              {/* Day Tasks Row: Chips on Left, +N Badge on Right */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'stretch',
+                  gap: 4,
+                  overflowY: 'hidden',
+                  minWidth: 0,
+                  width: '100%',
+                  flex: 1,
+                }}
+              >
+                {/* Left: Task chips stack (up to 3 items) */}
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 3,
+                    overflowY: 'hidden',
+                    minWidth: 0,
+                    flex: 1,
+                  }}
+                >
+                  {dayTasks.slice(0, 3).map((task) => {
+                    const color = getCategoryColor(task.categoryType, task.colorOverride);
+                    const start = new Date(task.startTime);
+                    const timeStr = `${start.getHours().toString().padStart(2, '0')}:${start.getMinutes().toString().padStart(2, '0')}`;
+                    const isTaskLocked = Boolean(task.isLocked && !isPrivacyUnlocked && !(unlockedScheduleIds && unlockedScheduleIds.has(task.id)));
+                    if (isTaskLocked) {
+                      return (
+                        <div
+                          key={task.id}
+                          className="month-task-chip locked-month-chip"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openLockedTaskUnlock(task.id, e.currentTarget);
+                          }}
+                          title="Vui lòng nhập mật khẩu để mở khóa lịch trình này!"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            padding: '2px 5px',
+                            borderRadius: 4,
+                            fontSize: '0.72rem',
+                            fontWeight: 600,
+                            backgroundColor: 'rgba(148, 163, 184, 0.15)',
+                            borderLeft: '2.5px solid #94A3B8',
+                            color: 'var(--text-muted, #94A3B8)',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            minWidth: 0,
+                            maxWidth: '100%',
+                          }}
+                        >
+                          <EyeLockIcon locked={true} size={12} color="#EF4444" />
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+                            Đã khóa
+                          </span>
+                        </div>
+                      );
+                    }
+
                     return (
                       <div
                         key={task.id}
-                        className="month-task-chip locked-month-chip"
+                        className="month-task-chip"
                         onClick={(e) => {
                           e.stopPropagation();
-                          openLockedTaskUnlock(task.id, e.currentTarget);
+                          onSelectBlock(task);
                         }}
-                        title="Vui lòng nhập mật khẩu để mở khóa lịch trình này!"
+                        title={`${task.title} (${timeStr})`}
                         style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -486,79 +543,64 @@ export default function MonthCalendar({
                           padding: '2px 5px',
                           borderRadius: 4,
                           fontSize: '0.72rem',
-                          fontWeight: 600,
-                          backgroundColor: 'rgba(148, 163, 184, 0.15)',
-                          borderLeft: '2.5px solid #94A3B8',
-                          color: 'var(--text-muted, #94A3B8)',
+                          fontWeight: 500,
+                          backgroundColor: `${color}26`,
+                          borderLeft: `2.5px solid ${color}`,
+                          color: 'var(--text)',
                           cursor: 'pointer',
                           whiteSpace: 'nowrap',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
                           minWidth: 0,
                           maxWidth: '100%',
+                          transition: 'transform 0.1s',
                         }}
                       >
-                        <EyeLockIcon locked={true} size={12} color="#EF4444" />
+                        <span style={{ fontSize: '0.66rem', color: color, fontWeight: 700, flexShrink: 0 }}>
+                          {timeStr}
+                        </span>
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
-                          Đã khóa
+                          {task.title}
                         </span>
                       </div>
                     );
-                  }
+                  })}
+                </div>
 
-                  return (
-                    <div
-                      key={task.id}
-                      className="month-task-chip"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSelectBlock(task);
-                      }}
-                      title={`${task.title} (${timeStr})`}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        padding: '2px 5px',
-                        borderRadius: 4,
-                        fontSize: '0.72rem',
-                        fontWeight: 500,
-                        backgroundColor: `${color}26`,
-                        borderLeft: `2.5px solid ${color}`,
-                        color: 'var(--text)',
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        minWidth: 0,
-                        maxWidth: '100%',
-                        transition: 'transform 0.1s',
-                      }}
-                    >
-                      <span style={{ fontSize: '0.66rem', color: color, fontWeight: 700, flexShrink: 0 }}>
-                        {timeStr}
-                      </span>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
-                        {task.title}
-                      </span>
-                    </div>
-                  );
-                })}
-
+                {/* Right: +N Badge matching the user's design */}
                 {dayTasks.length > 3 && (
-                  <span
+                  <div
+                    className="month-more-tasks-badge"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      clearHoverClose();
+                      const anchorEl = (e.currentTarget.closest('.month-day-cell') as HTMLDivElement) || e.currentTarget;
+                      setHoveredDay({ date: cellDate, dateStr: cellDateStr, anchor: anchorEl });
+                      setIsMonthPopoverPinned(true);
+                    }}
+                    title={`Còn ${dayTasks.length - 3} công việc nữa trong ngày ${formatDateDDMMYYYY(cellDate)} (Bấm để xem tất cả)`}
                     style={{
-                      fontSize: '0.68rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minWidth: 26,
+                      padding: '0 6px',
+                      borderRadius: 8,
+                      background: 'color-mix(in srgb, var(--primary) 22%, var(--surface))',
                       color: 'var(--primary)',
-                      fontWeight: 600,
-                      paddingLeft: 4,
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
+                      fontWeight: 800,
+                      fontSize: '0.8rem',
+                      letterSpacing: '-0.02em',
+                      flexShrink: 0,
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      boxSizing: 'border-box',
+                      transition: 'all 0.15s ease',
+                      border: '1px solid color-mix(in srgb, var(--primary) 32%, transparent)',
                     }}
                   >
-                    +{dayTasks.length - 3} việc nữa
-                  </span>
+                    +{dayTasks.length - 3}
+                  </div>
                 )}
               </div>
             </div>

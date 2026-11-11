@@ -2759,6 +2759,32 @@ ol {
   -webkit-box-orient: vertical !important;
 }
 
+/* ─── MONTH MORE TASKS BADGE (+N) ─── */
+.month-more-tasks-badge {
+  background: color-mix(in srgb, var(--primary) 22%, var(--surface));
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 32%, transparent);
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.month-more-tasks-badge:hover {
+  background: color-mix(in srgb, var(--primary) 35%, var(--surface)) !important;
+  color: var(--primary) !important;
+  transform: scale(1.04);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
+[data-theme='dark'] .month-more-tasks-badge {
+  background: color-mix(in srgb, var(--primary) 26%, transparent) !important;
+  color: #C4B5FD !important;
+  border-color: rgba(167, 139, 250, 0.35) !important;
+}
+
+[data-theme='dark'] .month-more-tasks-badge:hover {
+  background: color-mix(in srgb, var(--primary) 45%, transparent) !important;
+  color: #EDE9FE !important;
+}
+
 .event-note {
   font-size: 0.67rem;
   line-height: 1.25;
