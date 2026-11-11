@@ -4,6 +4,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import com.taskmanager.client.gemini.GeminiApiClient;
 import com.taskmanager.dto.ProductivityReportDto;
+import com.taskmanager.dto.ProductivityReportDto.DailySummaryDto;
+import com.taskmanager.dto.ProductivityReportDto.TaskItemDto;
 import com.taskmanager.entity.DanhMuc;
 import com.taskmanager.entity.NhatKyNangSuat;
 import com.taskmanager.entity.CongViec;
@@ -120,11 +122,11 @@ public class ProductivityService {
         int streak = calculateStreak(allUserTasks, reportDate);
 
         // 6. Map completed and pending task items
-        List<ProductivityReportDto.TaskItemDto> completedItems = completedTodayList.stream()
+        List<TaskItemDto> completedItems = completedTodayList.stream()
                 .map(t -> mapToTaskItemDto(t, categoryMap))
                 .toList();
 
-        List<ProductivityReportDto.TaskItemDto> pendingItems = scheduledTodayList.stream()
+        List<TaskItemDto> pendingItems = scheduledTodayList.stream()
                 .filter(t -> !completedTodayList.contains(t) && !"COMPLETED".equalsIgnoreCase(t.getStatus()) && !"CANCELLED".equalsIgnoreCase(t.getStatus()))
                 .map(t -> mapToTaskItemDto(t, categoryMap))
                 .toList();
@@ -197,7 +199,7 @@ public class ProductivityService {
         }
 
         // 9. Build past 7-day trend with real historical data
-        List<ProductivityReportDto.DailySummaryDto> trends = buildWeekTrends(allUserTasks, recentTimeBlocks, reportDate);
+        List<DailySummaryDto> trends = buildWeekTrends(allUserTasks, recentTimeBlocks, reportDate);
 
         // 10. Dynamic category distribution
         Map<String, Integer> catDist = buildCategoryDistribution(allUserTasks, categoryMap, reportDate);
@@ -304,11 +306,11 @@ public class ProductivityService {
         return streak;
     }
 
-    private List<ProductivityReportDto.DailySummaryDto> buildWeekTrends(
+    private List<DailySummaryDto> buildWeekTrends(
             List<CongViec> allTasks,
             List<KhoiThoiGian> recentTimeBlocks,
             LocalDate anchorDate) {
-        List<ProductivityReportDto.DailySummaryDto> list = new ArrayList<>();
+        List<DailySummaryDto> list = new ArrayList<>();
         String[] dayNames = {"CN", "T2", "T3", "T4", "T5", "T6", "T7"};
 
         for (int i = 6; i >= 0; i--) {
@@ -339,7 +341,7 @@ public class ProductivityService {
             int actualFocus = Math.max(dayTaskFocus, dayBlockFocus);
             int dayScore = calculateScore(dayTotal, dayCompleted, actualFocus, 100.0, 0);
 
-            list.add(ProductivityReportDto.DailySummaryDto.builder()
+            list.add(DailySummaryDto.builder()
                     .date(d)
                     .dayOfWeek(dayName)
                     .completedTasks(dayCompleted)
@@ -387,7 +389,7 @@ public class ProductivityService {
         return catDist;
     }
 
-    private ProductivityReportDto.TaskItemDto mapToTaskItemDto(CongViec t, Map<Long, DanhMuc> categoryMap) {
+    private TaskItemDto mapToTaskItemDto(CongViec t, Map<Long, DanhMuc> categoryMap) {
         String catName = "Chung";
         String catColor = "#6C5CE7";
         if (t.getCategoryId() != null && categoryMap.containsKey(t.getCategoryId())) {
@@ -409,7 +411,7 @@ public class ProductivityService {
                 ? t.getActualDurationMinutes()
                 : (t.getEstimatedDurationMinutes() != null && t.getEstimatedDurationMinutes() > 0 ? t.getEstimatedDurationMinutes() : 30);
 
-        return ProductivityReportDto.TaskItemDto.builder()
+        return TaskItemDto.builder()
                 .id(t.getId())
                 .title(t.getTitle())
                 .priority(t.getPriority() != null ? t.getPriority() : "MEDIUM")
