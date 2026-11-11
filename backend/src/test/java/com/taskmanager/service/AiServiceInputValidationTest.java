@@ -69,4 +69,61 @@ class AiServiceInputValidationTest {
         assertThrows(IllegalArgumentException.class, () -> aiService.breakdownTaskByPrompt(1L, request));
         verifyNoInteractions(geminiApiClient, taskRepository, subtaskRepository);
     }
+
+    @Test
+    void parsesMultipleTasksInSinglePromptSuccessfully() {
+        com.taskmanager.dto.request.AiParseTaskRequest request = com.taskmanager.dto.request.AiParseTaskRequest.builder()
+                .userId(1L)
+                .prompt("Sáng mai 8h học Tiếng Anh 1 tiếng, sau đó 10h họp nhóm đồ án 2 tiếng, chiều 15h đi bơi")
+                .currentDateTime("2026-11-11T09:00:00+07:00")
+                .build();
+
+        com.taskmanager.dto.response.AiParseTaskResponse response = aiService.parseTaskFromNaturalLanguage(request);
+
+        org.junit.jupiter.api.Assertions.assertNotNull(response);
+        org.junit.jupiter.api.Assertions.assertTrue(response.getIsValidTask());
+        org.junit.jupiter.api.Assertions.assertNotNull(response.getTasks());
+        org.junit.jupiter.api.Assertions.assertEquals(3, response.getTasks().size());
+        org.junit.jupiter.api.Assertions.assertEquals("Học Tiếng Anh", response.getTasks().get(0).getTitle());
+        org.junit.jupiter.api.Assertions.assertEquals("Họp nhóm đồ án", response.getTasks().get(1).getTitle());
+        org.junit.jupiter.api.Assertions.assertEquals("Đi bơi", response.getTasks().get(2).getTitle());
+    }
+
+    @Test
+    void parsesCommaSeparatedTasksSuccessfully() {
+        com.taskmanager.dto.request.AiParseTaskRequest request = com.taskmanager.dto.request.AiParseTaskRequest.builder()
+                .userId(1L)
+                .prompt("Mai 9h học tiếng anh, 14h làm đồ án, 17h tập gym")
+                .currentDateTime("2026-11-11T09:00:00+07:00")
+                .build();
+
+        com.taskmanager.dto.response.AiParseTaskResponse response = aiService.parseTaskFromNaturalLanguage(request);
+
+        org.junit.jupiter.api.Assertions.assertNotNull(response);
+        org.junit.jupiter.api.Assertions.assertTrue(response.getIsValidTask());
+        org.junit.jupiter.api.Assertions.assertNotNull(response.getTasks());
+        org.junit.jupiter.api.Assertions.assertEquals(3, response.getTasks().size());
+        org.junit.jupiter.api.Assertions.assertEquals("Học tiếng anh", response.getTasks().get(0).getTitle());
+        org.junit.jupiter.api.Assertions.assertEquals("Làm đồ án", response.getTasks().get(1).getTitle());
+        org.junit.jupiter.api.Assertions.assertEquals("Tập gym", response.getTasks().get(2).getTitle());
+    }
+
+    @Test
+    void parsesNumberedListTasksSuccessfully() {
+        com.taskmanager.dto.request.AiParseTaskRequest request = com.taskmanager.dto.request.AiParseTaskRequest.builder()
+                .userId(1L)
+                .prompt("Mai có 3 việc: 1. 8h đi chợ 2. 10h nấu cơm 3. 14h học bài")
+                .currentDateTime("2026-11-11T09:00:00+07:00")
+                .build();
+
+        com.taskmanager.dto.response.AiParseTaskResponse response = aiService.parseTaskFromNaturalLanguage(request);
+
+        org.junit.jupiter.api.Assertions.assertNotNull(response);
+        org.junit.jupiter.api.Assertions.assertTrue(response.getIsValidTask());
+        org.junit.jupiter.api.Assertions.assertNotNull(response.getTasks());
+        org.junit.jupiter.api.Assertions.assertEquals(3, response.getTasks().size());
+        org.junit.jupiter.api.Assertions.assertEquals("Đi chợ", response.getTasks().get(0).getTitle());
+        org.junit.jupiter.api.Assertions.assertEquals("Nấu cơm", response.getTasks().get(1).getTitle());
+        org.junit.jupiter.api.Assertions.assertEquals("Học bài", response.getTasks().get(2).getTitle());
+    }
 }

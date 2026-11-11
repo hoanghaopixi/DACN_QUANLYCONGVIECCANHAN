@@ -116,7 +116,7 @@ app.jwt.expiration-ms=86400000
 
 # Google Gemini API
 gemini.api.key=${GEMINI_API_KEY:}
-gemini.api.model=gemini-3.5-flash-lite
+gemini.api.model=${GEMINI_API_MODEL:gemini-1.5-flash}
 gemini.api.url=https://generativelanguage.googleapis.com/v1beta/models
 
 # CORS Origins

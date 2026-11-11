@@ -240,14 +240,30 @@ public class AiServiceImpl implements AiService {
                             + "\n"
                             + "═══ PHÂN LOẠI CÂU LỆNH & QUYẾT ĐỊNH CỜ FLAG (BẮT BUỘC) ═══\n"
                             + "Bạn hãy phân tích câu lệnh của người dùng và quyết định cờ flag `validationType`:\n"
-                            + "1) 'INAPPROPRIATE': Nếu câu lệnh chứa từ ngữ thô tục, chửi thề, tục tĩu, lăng mạ, khiếm nhã (ví dụ: dm, dcm, vcl, cc, cút, mẹ mày, chửi bới...). Đặt `isValidTask: false`, `validationType: 'INAPPROPRIATE'`, `tasks: []`, `validationMessage: 'Nội dung chứa từ ngữ không phù hợp chuẩn mực để đưa vào lịch trình cá nhân. Vui lòng sử dụng ngôn từ lịch sự và nhập công việc bạn muốn thực hiện.'`.\n"
-                            + "2) 'CHAT': Nếu câu lệnh là câu chào ('Hello', 'Xin chào', 'Hi', 'Alo'), hỏi thăm ('Bạn khỏe không?', 'Hôm nay thế nào?'), nói chuyện phiếm hoặc câu hỏi không liên quan đến lên lịch ('Thời tiết hôm nay', 'Bạn tên là gì', 'Bạn làm được gì', 'Cảm ơn nhé', v.v.). Đặt `isValidTask: false`, `validationType: 'CHAT'`, `tasks: []`. Trong `validationMessage`: Hãy trả lời tự nhiên, ngắn gọn, thân thiện theo đúng ngữ cảnh câu hỏi của người dùng như một chatbot thân thiện, kèm lời mời nhập công việc cần lên lịch (Ví dụ nếu hỏi 'Bạn khỏe không?' -> 'Mình là trợ lý ảo nên luôn tràn đầy năng lượng để đồng hành cùng bạn nè! Hôm nay bạn có kế hoạch hay công việc gì cần xếp lịch không?'; nếu chào 'Hello' -> 'Chào bạn! SmartTask AI rất vui được hỗ trợ bạn. Bạn có công việc gì cần mình lên lịch hôm nay không?').\n"
+                            + "1) 'INAPPROPRIATE': Nếu câu lệnh chứa từ ngữ thô tục, chửi thề, tục tĩu, lăng mạ, khiếm nhã. Đặt `isValidTask: false`, `validationType: 'INAPPROPRIATE'`, `tasks: []`, `validationMessage: 'Nội dung chứa từ ngữ không phù hợp chuẩn mực để đưa vào lịch trình cá nhân. Vui lòng sử dụng ngôn từ lịch sự và nhập công việc bạn muốn thực hiện.'`.\n"
+                            + "2) 'CHAT': Nếu câu lệnh là câu chào ('Hello', 'Xin chào', 'Hi', 'Alo'), hỏi thăm ('Bạn khỏe không?', 'Hôm nay thế nào?'), nói chuyện phiếm hoặc câu hỏi không liên quan đến lên lịch ('Thời tiết hôm nay', 'Bạn tên là gì', 'Bạn làm được gì', 'Cảm ơn nhé', v.v.). Đặt `isValidTask: false`, `validationType: 'CHAT'`, `tasks: []`. Trong `validationMessage`: Trả lời tự nhiên, thân thiện theo ngữ cảnh.\n"
                             + "3) 'VALID': Nếu câu lệnh chứa 1 hoặc nhiều công việc cụ thể cần lên lịch. Đặt `isValidTask: true`, `validationType: 'VALID'`, `validationMessage: null`, `tasks: [danh sách các công việc]`.\n"
                             + "\n"
-                            + "═══ NHIỆM VỤ BÓC TÁCH CÔNG VIỆC KHI validationType = 'VALID' ═══\n"
-                            + "1) Câu lệnh có thể chứa 1 HOẶC NHIỀU CÔNG VIỆC CẦN LÊN LỊCH. Bạn PHẢI bóc tách đầy đủ tất cả các việc vào mảng `tasks`.\n"
-                            + "2) Cho từng công việc trong `tasks`:\n"
-                            + "   ▸ title (string, BẮT BUỘC): Tiêu đề ngắn gọn, bản chất công việc. Viết hoa chữ cái đầu. TUYỆT ĐỐI KHÔNG chứa: ngày/tháng, thứ, giờ, thời lượng, độ ưu tiên.\n"
+                            + "═══ NGUYÊN TẮC BÓC TÁCH MỘT LÈO NHIỀU CÔNG VIỆC (CỰC KỲ QUAN TRỌNG) ═══\n"
+                            + "Khi người dùng nói hoặc gõ MỘT LÈO NHIỀU CÔNG VIỆC TRONG CÙNG MỘT CÂU (ngăn cách bằng dấu phẩy ',', từ 'và', 'rồi', 'sau đó', 'tiếp theo', 'xong rồi', 'xong thì', 'chiều', 'tối', hoặc liệt kê các mốc giờ 8h..., 10h..., 15h...):\n"
+                            + "• TUYỆT ĐỐI KHÔNG ĐƯỢC GỘP TẤT CẢ THÀNH 1 CÔNG VIỆC DUY NHẤT!\n"
+                            + "• BẮT BUỘC PHẢI TÁCH RỜI TỪNG CÔNG VIỆC THÀNH TỪNG PHẦN TỬ RIÊNG BIỆT TRONG MẢNG `tasks`. Bao nhiêu công việc người dùng kể thì trả về bấy nhiêu khung tương ứng!\n"
+                            + "• Kế thừa ngày: Nếu đầu câu nói 'Sáng mai...' rồi kể 1 lèo các việc thì TOÀN BỘ các việc sau đó đều kế thừa ngày MAI (trừ khi có việc nói rõ ngày khác).\n"
+                            + "• Tiêu đề từng việc: Chỉ lấy phần hành động bản chất (Ví dụ: 'Học tiếng Anh', 'Họp nhóm đồ án', 'Đi bơi', 'Tập gym'). Tuyệt đối không chứa ngày, thứ, mốc giờ trong tiêu đề.\n"
+                            + "\n"
+                            + "═══ VÍ DỤ BÓC TÁCH NHIỀU VIỆC CHUẨN XÁC (FEW-SHOT EXAMPLES) ═══\n"
+                            + "• Ví dụ 1: Người dùng nói: 'Sáng mai 8h học Tiếng Anh 1 tiếng, sau đó 10h họp nhóm đồ án 2 tiếng, chiều 15h đi bơi'\n"
+                            + "  -> tasks gồm 3 phần tử riêng biệt:\n"
+                            + "     1. title: 'Học Tiếng Anh', categoryType: 'STUDY', startTime: '<ngày_mai>T08:00:00+07:00', estimatedDurationMinutes: 60, priority: 'MEDIUM'\n"
+                            + "     2. title: 'Họp nhóm đồ án', categoryType: 'WORK', startTime: '<ngày_mai>T10:00:00+07:00', estimatedDurationMinutes: 120, priority: 'HIGH'\n"
+                            + "     3. title: 'Đi bơi', categoryType: 'HEALTH', startTime: '<ngày_mai>T15:00:00+07:00', estimatedDurationMinutes: 60, priority: 'MEDIUM'\n"
+                            + "• Ví dụ 2: Người dùng nói: 'Hôm nay 9h làm báo cáo, chiều 2h gặp khách hàng, 5h chiều tập gym, tối 8h xem phim'\n"
+                            + "  -> tasks gồm ĐỦ 4 phần tử riêng biệt cho từng khung giờ 09:00, 14:00, 17:00, 20:00.\n"
+                            + "• Ví dụ 3: Người dùng nói: 'Mai 8h học bài rồi 10h đi đá bóng'\n"
+                            + "  -> tasks gồm ĐỦ 2 phần tử riêng biệt cho 08:00 và 10:00 ngày mai.\n"
+                            + "\n"
+                            + "═══ CẤU TRÚC CHO MỖI CÔNG VIỆC TRONG `tasks` ═══\n"
+                            + "   ▸ title (string, BẮT BUỘC): Tiêu đề ngắn gọn, bản chất công việc. Viết hoa chữ cái đầu. TUYỆT ĐỐI KHÔNG chứa: ngày/tháng, thứ, giờ, thời lượng.\n"
                             + "   ▸ categoryType (string, BẮT BUỘC): chỉ 1 trong 4: 'WORK' | 'STUDY' | 'HEALTH' | 'ENTERTAINMENT'.\n"
                             + "   ▸ startTime (string ISO-8601, BẮT BUỘC): YYYY-MM-DDTHH:mm:ss+07:00 theo đúng ngày và giờ suy luận từ câu lệnh.\n"
                             + "   ▸ estimatedDurationMinutes (integer, BẮT BUỘC): Số phút ước tính. Nếu không nói rõ: HEALTH->45, STUDY->90, WORK->60, ENTERTAINMENT->60.\n"
@@ -256,7 +272,6 @@ public class AiServiceImpl implements AiService {
                             + "   ▸ note (string): 1 câu giải thích ngắn gọn ngữ cảnh và thời gian.\n"
                             + "\n"
                             + "═══ ĐẦU RA JSON BẮT BUỘC (KHÔNG MARKDOWN) ═══\n"
-                            + "Trả về 1 JSON object chuẩn gồm các khóa:\n"
                             + "{\n"
                             + "  \"isValidTask\": boolean,\n"
                             + "  \"validationType\": \"VALID\" | \"INAPPROPRIATE\" | \"CHAT\",\n"
@@ -403,18 +418,23 @@ public class AiServiceImpl implements AiService {
      * Thuật toán Heuristic nội bộ (Rule-based & Regex) khi không có mạng hoặc Gemini key chưa nhập
      */
     private AiParseTaskResponse fallbackHeuristicParse(String prompt, OffsetDateTime refDateTime) {
-        // Tách câu nếu có nhiều mệnh đề liên kết bằng: rồi đi, rồi, sau đó, tiếp theo, xong rồi, xong, ;, \n
-        String[] clauses = prompt.split("(?i)\\s+(?:rồi đi|roi di|rồi|roi|sau đó|sau do|tiếp theo|tiep theo|xong rồi|xong roi|xong)\\s+|[;\\n]+");
-        if (clauses.length > 1) {
+        List<String> clauses = splitMultiTaskPrompt(prompt);
+        if (clauses.size() > 1) {
             List<AiParseTaskResponse> multi = new ArrayList<>();
+            OffsetDateTime inheritedDate = null;
             for (String clause : clauses) {
                 String trimmed = clause.trim();
                 if (trimmed.length() >= 3) {
-                    AiParseTaskResponse res = parseSingleHeuristic(trimmed, refDateTime);
+                    AiParseTaskResponse res = parseSingleHeuristic(trimmed, refDateTime, inheritedDate);
                     if (res != null && Boolean.TRUE.equals(res.getIsValidTask())
                             && res.getTitle() != null && !"Việc".equalsIgnoreCase(res.getTitle())
                             && !"Công việc mới".equalsIgnoreCase(res.getTitle())) {
                         multi.add(res);
+                        if (inheritedDate == null && res.getStartTime() != null) {
+                            try {
+                                inheritedDate = OffsetDateTime.parse(res.getStartTime());
+                            } catch (Exception ignored) {}
+                        }
                     }
                 }
             }
@@ -436,10 +456,45 @@ public class AiServiceImpl implements AiService {
                         .build();
             }
         }
-        return parseSingleHeuristic(prompt, refDateTime);
+        return parseSingleHeuristic(prompt, refDateTime, null);
+    }
+
+    /**
+     * Tách thông minh câu lệnh chứa một lèo nhiều công việc
+     */
+    private List<String> splitMultiTaskPrompt(String prompt) {
+        if (prompt == null || prompt.isBlank()) return List.of();
+        String text = prompt.trim();
+
+        // Loại bỏ phần mở đầu như "Mai có 3 việc:", "Tôi có các việc sau:"
+        text = text.replaceAll("(?iU)^(?:hôm nay|ngày mai|mai)?\\s*(?:tôi có|mình có|em có|có|cần làm)?\\s*\\d*\\s*(?:công việc|việc|tác vụ|kế hoạch|lịch trình)?\\s*(?:sau|cần làm|cần xếp|như sau)?\\s*[:;-]\\s*", "");
+
+        // Tách theo dấu chấm phẩy, xuống dòng, từ nối, dấu phẩy/và trước mốc thời gian
+        String splitRegex = "(?iU)(?:\\s*;\\s*|\\r?\\n+|\\s+(?:rồi đi|roi di|sau đó|sau do|tiếp theo|tiep theo|tiếp đến|tiep den|kế tiếp|ke tiep|xong rồi|xong roi|xong thì|xong thi)\\s+|\\s*,\\s*(?=(?:sau đó|tiếp|xong|rồi|lúc|từ|vào|sáng|trưa|chiều|tối|đêm|mai|hôm nay|thứ|thu|chủ nhật|cn|\\d{1,2}(?:h|:\\d{2}|\\s*giờ)))|\\s+(?:và|va|với|voi)\\s+(?=(?:sau đó|tiếp|xong|rồi|lúc|từ|vào|sáng|trưa|chiều|tối|đêm|mai|hôm nay|thứ|thu|chủ nhật|cn|\\d{1,2}(?:h|:\\d{2}|\\s*giờ)))|\\s*(?:^|\\s+)(?:\\d+[\\.\\)-]|việc\\s*\\d+\\s*[:;-]?)\\s*)";
+
+        String[] rawClauses = text.split(splitRegex);
+        List<String> result = new ArrayList<>();
+        for (String c : rawClauses) {
+            String trimmed = c.trim();
+            if (trimmed.length() >= 3) {
+                // Tách thêm nếu bên trong clause còn chứa "rồi" hoặc "xong" trước giờ
+                String[] subClauses = trimmed.split("(?iU)\\s+(?:rồi|roi|xong)\\s+(?=\\d{1,2}(?:h|:\\d{2}|\\s*giờ)|lúc|vào|chiều|sáng|tối)");
+                for (String sc : subClauses) {
+                    String scTrimmed = sc.trim();
+                    if (scTrimmed.length() >= 3) {
+                        result.add(scTrimmed);
+                    }
+                }
+            }
+        }
+        return result.isEmpty() ? List.of(text) : result;
     }
 
     private AiParseTaskResponse parseSingleHeuristic(String prompt, OffsetDateTime refDateTime) {
+        return parseSingleHeuristic(prompt, refDateTime, null);
+    }
+
+    private AiParseTaskResponse parseSingleHeuristic(String prompt, OffsetDateTime refDateTime, OffsetDateTime inheritedTargetDate) {
         String normalized = prompt;
         // Chuẩn hóa từ số nói "một" -> "1"
         normalized = normalized.replaceAll("(?i)\\b(?:một|mốt)\\s*(?:giờ|gio|h)\\b", "1h");
@@ -527,7 +582,8 @@ public class AiServiceImpl implements AiService {
         }
 
         // 3. Ngày tháng (Date & Day of Week)
-        OffsetDateTime targetDate = refDateTime;
+        OffsetDateTime targetDate = inheritedTargetDate != null ? inheritedTargetDate : refDateTime;
+        boolean hasExplicitDate = false;
 
         // Bóc tách thứ trong tuần: thứ 2 -> thứ 7, chủ nhật / cn
         Integer targetDayOfWeek = null; // 1 = Monday, ..., 7 = Sunday
@@ -557,6 +613,7 @@ public class AiServiceImpl implements AiService {
             int y = exactDateMatcher.group(3) != null ? Integer.parseInt(exactDateMatcher.group(3)) : refDateTime.getYear();
             try {
                 targetDate = targetDate.withYear(y).withMonth(m).withDayOfMonth(d);
+                hasExplicitDate = true;
             } catch (Exception ignored) {}
         } else if (targetDayOfWeek != null) {
             int currentDow = refDateTime.getDayOfWeek().getValue(); // 1 = Monday, ..., 7 = Sunday
@@ -569,15 +626,23 @@ public class AiServiceImpl implements AiService {
                 dayDiff += 7;
             }
             targetDate = refDateTime.plusDays(dayDiff);
+            hasExplicitDate = true;
         } else if (lower.contains("ngày hôm sau") || lower.contains("hôm sau")) {
             targetDate = refDateTime.plusDays(1);
+            hasExplicitDate = true;
         } else if (lower.contains("ngày mai") || lower.contains("chiều mai") || lower.contains("sáng mai")
-                || lower.contains("tối mai")) {
+                || lower.contains("tối mai") || Pattern.compile("\\bmai\\b").matcher(lower).find()) {
             targetDate = refDateTime.plusDays(1);
+            hasExplicitDate = true;
         } else if (lower.contains("ngày mốt") || lower.contains("hôm kia")) {
             targetDate = refDateTime.plusDays(2);
+            hasExplicitDate = true;
         } else if (lower.contains("tuần sau")) {
             targetDate = refDateTime.plusDays(7);
+            hasExplicitDate = true;
+        } else if (lower.contains("hôm nay") || lower.contains("sáng nay") || lower.contains("chiều nay") || lower.contains("tối nay")) {
+            targetDate = refDateTime;
+            hasExplicitDate = true;
         }
 
         // 4. Giờ giấc & Khoảng thời gian (Start Hour, End Hour, Duration)
@@ -826,7 +891,7 @@ public class AiServiceImpl implements AiService {
 
         // 7. Loại bỏ từ chỉ mốc thời gian tương đối & buổi
         clean = clean.replaceAll(
-                "(?iU)\\b(hôm nay|hom nay|hôm qua|hom qua|ngày mai|ngay mai|ngày mốt|ngay mot|ngày kia|ngay kia|hôm kia|hom kia|tuần này|tuan nay|tuần sau|tuan sau|tháng này|thang nay|tháng sau|thang sau)\\b",
+                "(?iU)\\b(hôm nay|hom nay|hôm qua|hom qua|ngày mai|ngay mai|ngày mốt|ngay mot|ngày kia|ngay kia|hôm kia|hom kia|tuần này|tuan nay|tuần sau|tuan sau|tháng này|thang nay|tháng sau|thang sau|mai)\\b",
                 "");
         clean = clean.replaceAll(
                 "(?iU)\\b(sáng nay|sang nay|chiều nay|chieu nay|tối nay|toi nay|sáng mai|sang mai|chiều mai|chieu mai|tối mai|toi mai|sáng|sang|chiều|chieu|tối|toi|trưa|trua|đêm|dem)\\b",
@@ -838,8 +903,10 @@ public class AiServiceImpl implements AiService {
 
         // 9. Dọn sạch các từ nối còn sót và dấu câu thừa
         clean = clean.replaceAll("(?iU)\\b(vào lúc|vao luc|vào|vao|lúc|luc|từ|tu|đến|den|tới|toi|khoảng|khoang|tầm|tam)\\b", "");
+        clean = clean.replaceAll("(?iU)^(?:sau đó|sau do|tiếp theo|tiep theo|tiếp đến|tiep den|kế tiếp|ke tiep|xong rồi|xong roi|xong thì|xong thi|rồi|roi|xong|tiếp|và|va|với|voi)\\s+", "");
         clean = clean.replaceAll("[\\.,;:!\\?~\\-_]+$", "").trim();
         clean = clean.replaceAll("^[\\.,;:!\\?~\\-_]+", "").trim();
+        clean = clean.replaceAll("(?iU)^(?:sau đó|sau do|tiếp theo|tiep theo|tiếp đến|tiep den|kế tiếp|ke tiep|xong rồi|xong roi|xong thì|xong thi|rồi|roi|xong|tiếp|và|va|với|voi)\\s+", "");
         clean = clean.replaceAll("\\s+", " ").trim();
 
         if (clean.length() > 1) {
