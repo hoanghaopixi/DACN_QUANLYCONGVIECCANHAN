@@ -21,6 +21,7 @@ public class UserPreferenceService {
 
     private final UserPreferenceRepository userPreferenceRepository;
     private final MediaHistoryRepository mediaHistoryRepository;
+    private final com.taskmanager.repository.UserRepository userRepository;
 
     @Transactional(readOnly = true)
     public UserPreferenceDto getPreference(Long userId) {
@@ -38,6 +39,19 @@ public class UserPreferenceService {
                         .backgroundUrl(null)
                         .backgroundType("NONE")
                         .overlayDarkness(50)
+                        .lunchBreakStart(LocalTime.of(12, 0))
+                        .lunchBreakEnd(LocalTime.of(13, 0))
+                        .allowWeekendTasks(true)
+                        .aiAutoFindSlot(true)
+                        .aiAlwaysAskBeforeChange(true)
+                        .aiAllowSplitLongTasks(true)
+                        .aiAutoMoveFixedTasks(false)
+                        .reminderMinutesBefore(15)
+                        .dndStartTime(LocalTime.of(22, 0))
+                        .dndEndTime(LocalTime.of(7, 0))
+                        .enableDeviceNotifications(true)
+                        .enableMorningSummaryEmail(false)
+                        .language("Tiếng Việt")
                         .build());
 
         return toDto(pref);
@@ -86,7 +100,77 @@ public class UserPreferenceService {
         if (dto.getOverlayDarkness() != null) {
             pref.setOverlayDarkness(Math.max(0, Math.min(100, dto.getOverlayDarkness())));
         }
+        if (dto.getLunchBreakStart() != null) {
+            try {
+                pref.setLunchBreakStart(LocalTime.parse(dto.getLunchBreakStart().trim()));
+            } catch (Exception ignored) {}
+        }
+        if (dto.getLunchBreakEnd() != null) {
+            try {
+                pref.setLunchBreakEnd(LocalTime.parse(dto.getLunchBreakEnd().trim()));
+            } catch (Exception ignored) {}
+        }
+        if (dto.getAllowWeekendTasks() != null) {
+            pref.setAllowWeekendTasks(dto.getAllowWeekendTasks());
+        }
+        if (dto.getAiAutoFindSlot() != null) {
+            pref.setAiAutoFindSlot(dto.getAiAutoFindSlot());
+        }
+        if (dto.getAiAlwaysAskBeforeChange() != null) {
+            pref.setAiAlwaysAskBeforeChange(dto.getAiAlwaysAskBeforeChange());
+        }
+        if (dto.getAiAllowSplitLongTasks() != null) {
+            pref.setAiAllowSplitLongTasks(dto.getAiAllowSplitLongTasks());
+        }
+        if (dto.getAiAutoMoveFixedTasks() != null) {
+            pref.setAiAutoMoveFixedTasks(dto.getAiAutoMoveFixedTasks());
+        }
+        if (dto.getReminderMinutesBefore() != null) {
+            pref.setReminderMinutesBefore(dto.getReminderMinutesBefore());
+        }
+        if (dto.getDndStartTime() != null) {
+            try {
+                pref.setDndStartTime(LocalTime.parse(dto.getDndStartTime().trim()));
+            } catch (Exception ignored) {}
+        }
+        if (dto.getDndEndTime() != null) {
+            try {
+                pref.setDndEndTime(LocalTime.parse(dto.getDndEndTime().trim()));
+            } catch (Exception ignored) {}
+        }
+        if (dto.getEnableDeviceNotifications() != null) {
+            pref.setEnableDeviceNotifications(dto.getEnableDeviceNotifications());
+        }
+        if (dto.getEnableMorningSummaryEmail() != null) {
+            pref.setEnableMorningSummaryEmail(dto.getEnableMorningSummaryEmail());
+        }
+        if (dto.getLanguage() != null && !dto.getLanguage().isBlank()) {
+            pref.setLanguage(dto.getLanguage().trim());
+        }
         pref.setUpdatedAt(OffsetDateTime.now());
+
+        // Đồng bộ họ tên, số điện thoại và ảnh đại diện vào bảng nguoidung nếu có gửi kèm
+        if (dto.getFullName() != null || dto.getPhone() != null || dto.getAvatarUrl() != null) {
+            userRepository.findById(userId).ifPresent(user -> {
+                boolean changed = false;
+                if (dto.getFullName() != null && !dto.getFullName().isBlank()) {
+                    user.setFullName(dto.getFullName().trim());
+                    changed = true;
+                }
+                if (dto.getPhone() != null) {
+                    user.setPhoneNumber(dto.getPhone().trim());
+                    changed = true;
+                }
+                if (dto.getAvatarUrl() != null) {
+                    user.setAvatarUrl(dto.getAvatarUrl().trim().isEmpty() ? null : dto.getAvatarUrl().trim());
+                    changed = true;
+                }
+                if (changed) {
+                    user.setUpdatedAt(OffsetDateTime.now());
+                    userRepository.save(user);
+                }
+            });
+        }
 
         CaiDatNguoiDung saved = userPreferenceRepository.save(pref);
         return toDto(saved);
@@ -157,20 +241,37 @@ public class UserPreferenceService {
     }
 
     private UserPreferenceDto toDto(CaiDatNguoiDung p) {
+        com.taskmanager.entity.NguoiDung user = userRepository.findById(p.getUserId()).orElse(null);
         return UserPreferenceDto.builder()
                 .id(p.getId())
                 .userId(p.getUserId())
+                .fullName(user != null ? user.getFullName() : null)
+                .phone(user != null ? user.getPhoneNumber() : null)
+                .avatarUrl(user != null ? user.getAvatarUrl() : null)
+                .language(p.getLanguage() != null ? p.getLanguage() : "Tiếng Việt")
                 .workStartTime(p.getWorkStartTime() != null ? String.format("%02d:%02d", p.getWorkStartTime().getHour(), p.getWorkStartTime().getMinute()) : "08:00")
                 .workEndTime(p.getWorkEndTime() != null ? String.format("%02d:%02d", p.getWorkEndTime().getHour(), p.getWorkEndTime().getMinute()) : "18:00")
+                .lunchBreakStart(p.getLunchBreakStart() != null ? String.format("%02d:%02d", p.getLunchBreakStart().getHour(), p.getLunchBreakStart().getMinute()) : "12:00")
+                .lunchBreakEnd(p.getLunchBreakEnd() != null ? String.format("%02d:%02d", p.getLunchBreakEnd().getHour(), p.getLunchBreakEnd().getMinute()) : "13:00")
                 .workDays(p.getWorkDays() != null ? p.getWorkDays() : "MON,TUE,WED,THU,FRI")
                 .bufferMinutes(p.getBufferMinutes() != null ? p.getBufferMinutes() : 15)
+                .allowWeekendTasks(p.getAllowWeekendTasks() != null ? p.getAllowWeekendTasks() : true)
                 .peakProductivityTime(p.getPeakProductivityTime() != null ? p.getPeakProductivityTime() : "MORNING")
                 .autoReschedule(p.getAutoReschedule() != null ? p.getAutoReschedule() : true)
+                .aiAutoFindSlot(p.getAiAutoFindSlot() != null ? p.getAiAutoFindSlot() : true)
+                .aiAlwaysAskBeforeChange(p.getAiAlwaysAskBeforeChange() != null ? p.getAiAlwaysAskBeforeChange() : true)
+                .aiAllowSplitLongTasks(p.getAiAllowSplitLongTasks() != null ? p.getAiAllowSplitLongTasks() : true)
+                .aiAutoMoveFixedTasks(p.getAiAutoMoveFixedTasks() != null ? p.getAiAutoMoveFixedTasks() : false)
                 .timeZone(p.getTimeZone() != null ? p.getTimeZone() : "Asia/Ho_Chi_Minh")
                 .theme(p.getTheme() != null ? p.getTheme() : "LIGHT")
                 .backgroundUrl(p.getBackgroundUrl())
                 .backgroundType(p.getBackgroundType() != null ? p.getBackgroundType() : "NONE")
                 .overlayDarkness(p.getOverlayDarkness() != null ? p.getOverlayDarkness() : 50)
+                .reminderMinutesBefore(p.getReminderMinutesBefore() != null ? p.getReminderMinutesBefore() : 15)
+                .dndStartTime(p.getDndStartTime() != null ? String.format("%02d:%02d", p.getDndStartTime().getHour(), p.getDndStartTime().getMinute()) : "22:00")
+                .dndEndTime(p.getDndEndTime() != null ? String.format("%02d:%02d", p.getDndEndTime().getHour(), p.getDndEndTime().getMinute()) : "07:00")
+                .enableDeviceNotifications(p.getEnableDeviceNotifications() != null ? p.getEnableDeviceNotifications() : true)
+                .enableMorningSummaryEmail(p.getEnableMorningSummaryEmail() != null ? p.getEnableMorningSummaryEmail() : false)
                 .build();
     }
 }

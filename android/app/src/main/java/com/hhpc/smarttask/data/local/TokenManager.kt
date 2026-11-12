@@ -3,6 +3,7 @@ package com.hhpc.smarttask.data.local
 import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -16,6 +17,7 @@ class TokenManager(private val context: Context) {
         private val USER_EMAIL_KEY = stringPreferencesKey("user_email")
         private val USER_NAME_KEY = stringPreferencesKey("user_name")
         private val USER_AVATAR_KEY = stringPreferencesKey("user_avatar")
+        private val DISMISSED_NOTIFS_KEY = stringSetPreferencesKey("dismissed_notifications")
     }
 
     val tokenFlow: Flow<String?> = context.dataStore.data.map { prefs ->
@@ -30,12 +32,53 @@ class TokenManager(private val context: Context) {
         prefs[USER_EMAIL_KEY]
     }
 
+    val userAvatarFlow: Flow<String?> = context.dataStore.data.map { prefs ->
+        prefs[USER_AVATAR_KEY]
+    }
+
+    val dismissedNotifsFlow: Flow<Set<String>> = context.dataStore.data.map { prefs ->
+        prefs[DISMISSED_NOTIFS_KEY] ?: emptySet()
+    }
+
     suspend fun saveAuth(token: String, email: String?, fullName: String?, avatarUrl: String?) {
         context.dataStore.edit { prefs ->
             prefs[JWT_TOKEN_KEY] = token
             if (email != null) prefs[USER_EMAIL_KEY] = email
             if (fullName != null) prefs[USER_NAME_KEY] = fullName
             if (avatarUrl != null) prefs[USER_AVATAR_KEY] = avatarUrl
+        }
+    }
+
+    suspend fun saveAvatarUrl(avatarUrl: String) {
+        context.dataStore.edit { prefs ->
+            prefs[USER_AVATAR_KEY] = avatarUrl
+        }
+    }
+
+    suspend fun updateProfileInfo(fullName: String?, avatarUrl: String?) {
+        context.dataStore.edit { prefs ->
+            if (fullName != null) prefs[USER_NAME_KEY] = fullName
+            if (avatarUrl != null) prefs[USER_AVATAR_KEY] = avatarUrl
+        }
+    }
+
+    suspend fun dismissNotification(key: String) {
+        context.dataStore.edit { prefs ->
+            val current = prefs[DISMISSED_NOTIFS_KEY] ?: emptySet()
+            prefs[DISMISSED_NOTIFS_KEY] = current + key
+        }
+    }
+
+    suspend fun dismissAllNotifications(keys: Collection<String>) {
+        context.dataStore.edit { prefs ->
+            val current = prefs[DISMISSED_NOTIFS_KEY] ?: emptySet()
+            prefs[DISMISSED_NOTIFS_KEY] = current + keys
+        }
+    }
+
+    suspend fun clearDismissedNotifications() {
+        context.dataStore.edit { prefs ->
+            prefs.remove(DISMISSED_NOTIFS_KEY)
         }
     }
 

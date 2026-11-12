@@ -23,7 +23,7 @@ public class NguoiDung {
     @Column(name = "\"Email\"", nullable = false, unique = true, length = 120)
     private String email;
 
-    @Column(name = "\"MatKhau\"", nullable = false)
+    @Column(name = "\"MatKhau\"")
     private String passwordHash;
 
     @Column(name = "\"HoVaTen\"", nullable = false, length = 100)
@@ -34,6 +34,9 @@ public class NguoiDung {
 
     @Column(name = "\"AnhDaiDien\"", columnDefinition = "TEXT")
     private String avatarUrl;
+
+    @Column(name = "\"GoogleId\"", unique = true, length = 100)
+    private String googleId;
 
     @Column(name = "\"NguonXacThuc\"", length = 20)
     @Builder.Default

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { CheckCircle2, X } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
 import CalendarControls from './components/CalendarControls';
@@ -24,6 +25,8 @@ import { ViewMode, TimeBlock, Category, UserStats, TaskStatus } from './types';
 import { matchesSearch } from './utils/vietnameseSearch';
 import { formatDateDDMMYYYY } from './utils/dateTimeFormat';
 import { runViewTransition } from './utils/viewTransition';
+import { formatApiErrorMessage } from './utils/apiErrorHandler';
+import { useSafeMediaBlob } from './utils/safeMedia';
 
 export default function App() {
   // ── Theme State (Light / Dark) ──
@@ -36,8 +39,18 @@ export default function App() {
     localStorage.setItem('smarttask_theme', theme);
   }, [theme]);
 
+  const handleThemeChange = (newTheme: 'light' | 'dark') => {
+    setTheme(newTheme);
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('smarttask_theme', newTheme);
+    if (currentUser) {
+      preferenceService.updatePreferences({ theme: newTheme.toUpperCase() }).catch(() => {});
+    }
+  };
+
   const toggleTheme = () => {
-    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
+    const nextTheme = theme === 'light' ? 'dark' : 'light';
+    handleThemeChange(nextTheme);
   };
 
   // ── Current User State (Auth) ──
@@ -65,44 +78,74 @@ export default function App() {
     overlayDarkness: 50,
   });
 
-  // Load preferences (including custom background) from PostgreSQL on startup
+  const safeVideoBgUrl = useSafeMediaBlob(
+    backgroundSettings.backgroundType === 'VIDEO' ? backgroundSettings.backgroundUrl : null,
+    true
+  );
+
+  // Load preferences (including custom background and theme) from PostgreSQL on startup
   useEffect(() => {
-    preferenceService.getPreferences().then((pref) => {
-      if (pref) {
-        setBackgroundSettings({
-          backgroundUrl: pref.backgroundUrl || '',
-          backgroundType: (pref.backgroundType as any) || 'NONE',
-          overlayDarkness: pref.overlayDarkness !== undefined ? pref.overlayDarkness : 50,
-        });
-      }
-    }).catch(() => {});
-  }, [currentUser]);
+    if (currentUser) {
+      preferenceService.getPreferences().then((pref) => {
+        if (pref) {
+          setBackgroundSettings({
+            backgroundUrl: pref.backgroundUrl || '',
+            backgroundType: (pref.backgroundType as any) || 'NONE',
+            overlayDarkness: pref.overlayDarkness !== undefined ? pref.overlayDarkness : 50,
+          });
+          if (pref.theme) {
+            const dbTheme = pref.theme.toLowerCase() === 'dark' ? 'dark' : 'light';
+            setTheme(dbTheme);
+            document.documentElement.setAttribute('data-theme', dbTheme);
+            localStorage.setItem('smarttask_theme', dbTheme);
+          }
+        }
+      }).catch(() => {});
+    }
+  }, [currentUser?.email]);
 
   // ── Active Workspace State ──
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceItem | null>(null);
 
   // ── Toast Notification State ──
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [isToastClosing, setIsToastClosing] = useState(false);
+  const [toast, setToast] = useState<{ id: number; message: string; isClosing: boolean } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showToast = (msg: string) => {
-    // Tự động gạt bỏ các icon/emoji mở đầu (✓, ⚠️, 🎉, ⏳, 🔥, v.v.) để thông báo sạch sẽ, tự nhiên, không AI
+
+  const showToast = useCallback((msg: string) => {
+    // Tự động gạt bỏ các icon/emoji mở đầu (✓, ⚠️, 🎉, ⏳, 🔥, v.v.) để thông báo sạch sẽ, đồng nhất
     const cleanMsg = (msg || '').replace(/^[\s✓⚠️🎉⏳🔥❌ℹ️]+/, '').trim();
+    if (!cleanMsg) return;
+
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     if (toastExitTimerRef.current) clearTimeout(toastExitTimerRef.current);
-    setToastMessage(cleanMsg);
-    setIsToastClosing(false);
+
+    setToast({
+      id: Date.now(),
+      message: cleanMsg,
+      isClosing: false,
+    });
+
     toastTimerRef.current = setTimeout(() => {
-      setIsToastClosing(true);
+      setToast((prev) => (prev ? { ...prev, isClosing: true } : null));
       toastExitTimerRef.current = setTimeout(() => {
-        setToastMessage(null);
-        setIsToastClosing(false);
+        setToast(null);
         toastTimerRef.current = null;
         toastExitTimerRef.current = null;
-      }, 260);
+      }, 250);
     }, 2800);
-  };
+  }, []);
+
+  const closeToast = useCallback(() => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    if (toastExitTimerRef.current) clearTimeout(toastExitTimerRef.current);
+    setToast((prev) => (prev ? { ...prev, isClosing: true } : null));
+    toastExitTimerRef.current = setTimeout(() => {
+      setToast(null);
+      toastTimerRef.current = null;
+      toastExitTimerRef.current = null;
+    }, 250);
+  }, []);
 
   // ── Calendar & Navigation State ──
   const [activeNav, setActiveNav] = useState('calendar'); // 'calendar' | 'tasks' | 'productivity' | 'settings'
@@ -301,7 +344,6 @@ export default function App() {
       };
       setCurrentUser(newUser);
       localStorage.setItem('smarttask_current_user', JSON.stringify(newUser));
-      showToast('Đã lưu thông tin tài khoản thành công!');
     }
   };
 
@@ -608,7 +650,7 @@ export default function App() {
       await loadData(activeWorkspace?.id);
     } catch (err: any) {
       console.error('Lỗi khi xóa nhóm:', err);
-      const serverMsg = err.response?.data?.message || 'Không thể xóa nhóm này vì đang có công việc đang sử dụng!';
+      const serverMsg = formatApiErrorMessage(err, 'Không thể xóa nhóm này vì đang có công việc đang sử dụng!');
       showToast(serverMsg);
       throw err;
     }
@@ -810,8 +852,8 @@ export default function App() {
         <div className="app-custom-bg-root">
           {backgroundSettings.backgroundType === 'VIDEO' ? (
             <video
-              key={backgroundSettings.backgroundUrl}
-              src={backgroundSettings.backgroundUrl}
+              key={safeVideoBgUrl || backgroundSettings.backgroundUrl}
+              src={safeVideoBgUrl || backgroundSettings.backgroundUrl}
               autoPlay
               loop
               muted
@@ -829,8 +871,8 @@ export default function App() {
             className="app-custom-bg-overlay"
             style={{
               backgroundColor: theme === 'dark'
-                ? `rgba(10, 15, 30, ${Math.max(45, backgroundSettings.overlayDarkness ?? 50) / 100})`
-                : `rgba(248, 250, 252, ${Math.max(45, backgroundSettings.overlayDarkness ?? 50) / 100})`,
+                ? `rgba(10, 15, 30, ${(backgroundSettings.overlayDarkness ?? 50) / 100})`
+                : `rgba(248, 250, 252, ${(backgroundSettings.overlayDarkness ?? 50) / 100})`,
             }}
           />
         </div>
@@ -863,7 +905,7 @@ export default function App() {
             <SettingsPage
               currentUser={currentUser}
               theme={theme}
-              onThemeChange={setTheme}
+              onThemeChange={handleThemeChange}
               onUpdateProfile={handleUpdateProfile}
               onUpdateBackground={(bg) => setBackgroundSettings(bg)}
               onLogout={handleLogout}
@@ -1106,28 +1148,56 @@ export default function App() {
       />
 
       {/* ── Floating Toast Notification ── */}
-      {toastMessage && (
+      {toast && (
         <div
+          className={`smarttask-toast ${toast.isClosing ? 'toast-exit' : 'toast-enter'}`}
           style={{
             position: 'fixed',
             bottom: 24,
             right: 24,
             zIndex: 99999,
-            background: 'var(--text)',
-            color: 'var(--surface)',
-            padding: '12px 20px',
-            borderRadius: 12,
-            boxShadow: '0 10px 25px rgba(0,0,0,0.25)',
-            fontSize: '0.86rem',
+            background: theme === 'dark' ? 'rgba(23, 37, 84, 0.96)' : 'rgba(15, 23, 42, 0.94)',
+            color: '#FFFFFF',
+            padding: '12px 18px',
+            borderRadius: 14,
+            boxShadow: '0 12px 32px rgba(0,0,0,0.28), 0 2px 8px rgba(0,0,0,0.12)',
+            fontSize: '0.88rem',
             fontWeight: 600,
             display: 'flex',
             alignItems: 'center',
             gap: 10,
-            animation: `${isToastClosing ? 'slideOutToastLeft' : 'slideInToastLeft'} 0.26s cubic-bezier(0.2, 0.75, 0.25, 1) both`,
-            border: '1px solid rgba(255,255,255,0.1)',
+            border: '1px solid rgba(255, 255, 255, 0.16)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            maxWidth: '90vw',
           }}
         >
-          <span>{toastMessage}</span>
+          <div style={{ color: '#10B981', display: 'flex', alignItems: 'center' }}>
+            <CheckCircle2 size={18} />
+          </div>
+          <span style={{ flex: 1 }}>{toast.message}</span>
+          <button
+            type="button"
+            onClick={closeToast}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'rgba(255, 255, 255, 0.7)',
+              cursor: 'pointer',
+              padding: 4,
+              borderRadius: 6,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginLeft: 4,
+              transition: 'color 0.15s ease',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = '#fff')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)')}
+            title="Đóng thông báo"
+          >
+            <X size={15} />
+          </button>
         </div>
       )}
     </div>

@@ -2,6 +2,7 @@ package com.hhpc.smarttask.data.repository
 
 import android.content.Context
 import com.hhpc.smarttask.data.api.ApiClient
+import com.hhpc.smarttask.data.api.ApiErrorParser
 import com.hhpc.smarttask.data.model.Category
 import com.hhpc.smarttask.data.model.Workspace
 
@@ -15,10 +16,10 @@ class WorkspaceRepository(context: Context) {
             if (res.isSuccessful && res.body() != null) {
                 Result.success(res.body()!!)
             } else {
-                Result.failure(Exception("Không thể tải danh sách Không gian làm việc"))
+                Result.failure(Exception(ApiErrorParser.parseError(res, "Không thể tải danh sách Không gian làm việc")))
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(ApiErrorParser.parseException(e, "Không thể tải danh sách Không gian làm việc")))
         }
     }
 
@@ -28,10 +29,10 @@ class WorkspaceRepository(context: Context) {
             if (res.isSuccessful && res.body() != null) {
                 Result.success(res.body()!!)
             } else {
-                Result.failure(Exception("Không thể tạo Không gian làm việc"))
+                Result.failure(Exception(ApiErrorParser.parseError(res, "Không thể tạo Không gian làm việc")))
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(ApiErrorParser.parseException(e, "Không thể tạo Không gian làm việc")))
         }
     }
 
@@ -41,10 +42,10 @@ class WorkspaceRepository(context: Context) {
             if (res.isSuccessful && res.body() != null) {
                 Result.success(res.body()!!)
             } else {
-                Result.failure(Exception("Không thể tải danh sách Danh mục"))
+                Result.failure(Exception(ApiErrorParser.parseError(res, "Không thể tải danh sách Danh mục")))
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(ApiErrorParser.parseException(e, "Không thể tải danh sách Danh mục")))
         }
     }
 }

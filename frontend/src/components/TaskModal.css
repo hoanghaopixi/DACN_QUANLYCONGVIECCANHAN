@@ -9,6 +9,12 @@
   background: rgba(12, 20, 30, .58);
   backdrop-filter: blur(8px) saturate(115%);
   -webkit-backdrop-filter: blur(8px) saturate(115%);
+  animation: modalBackdropFadeIn .2s ease-out both;
+}
+
+.task-modal-overlay.is-closing {
+  pointer-events: none;
+  animation: modalBackdropFadeOut .2s ease-in both;
 }
 
 .task-modal-shell {
@@ -23,7 +29,12 @@
   border: 1px solid var(--border);
   border-radius: 18px;
   box-shadow: 0 28px 80px rgba(3, 10, 18, .32);
-  animation: modalSlideUp .2s ease-out;
+  animation: modalSlideUp .22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.task-modal-shell.is-closing {
+  pointer-events: none;
+  animation: modalSlideDown .2s cubic-bezier(0.4, 0, 1, 1) both;
 }
 
 .task-modal-header {

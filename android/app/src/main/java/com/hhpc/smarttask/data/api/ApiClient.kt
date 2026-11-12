@@ -45,4 +45,8 @@ object ApiClient {
     fun getAiApi(context: Context): AiApi = getRetrofit(context).create(AiApi::class.java)
     fun getProductivityApi(context: Context): ProductivityApi = getRetrofit(context).create(ProductivityApi::class.java)
     fun getUserPreferenceApi(context: Context): UserPreferenceApi = getRetrofit(context).create(UserPreferenceApi::class.java)
+    fun getNotificationApi(context: Context): NotificationApi = getRetrofit(context).create(NotificationApi::class.java)
+    fun getHabitLogApi(context: Context): HabitLogApi = getRetrofit(context).create(HabitLogApi::class.java)
+    fun getMediaApi(context: Context): MediaApi = getRetrofit(context).create(MediaApi::class.java)
+    fun getDatabaseStatsApi(context: Context): DatabaseStatsApi = getRetrofit(context).create(DatabaseStatsApi::class.java)
 }

@@ -41,7 +41,7 @@ Cơ sở dữ liệu được định nghĩa chuẩn hóa 3NF tại [CSDL_CHI_TI
 
 ### 2.2. Danh sách Entity cốt lõi (`backend/src/main/java/com/taskmanager/entity/`):
 *Toàn bộ tên file Entity và class Java đã được chuẩn hóa đồng bộ 100% sang tiếng Việt tương ứng với tên bảng PostgreSQL:*
-1. **`NguoiDung` (Bảng `nguoidung`, file `NguoiDung.java`)**: Quản lý tài khoản, email duy nhất, `MatKhau` (BCrypt), `HoVaTen`, `SoDienThoai`, `AnhDaiDien`, `NguonXacThuc` (`LOCAL`/`GOOGLE`), `KichHoat` (`isActive`), liên kết Many-to-Many với `VaiTro` qua bảng `vaitronguoidung`.
+1. **`NguoiDung` (Bảng `nguoidung`, file `NguoiDung.java`)**: Quản lý tài khoản, email duy nhất, `MatKhau` (BCrypt, nullable khi dùng Google), `GoogleId` (mã định danh Google), `HoVaTen`, `SoDienThoai`, `AnhDaiDien`, `NguonXacThuc` (`LOCAL`/`GOOGLE`), `KichHoat` (`isActive`), liên kết Many-to-Many với `VaiTro` qua bảng `vaitronguoidung`.
 2. **`CongViec` (Bảng `congviec`, file `CongViec.java`)**:
    - `TieuDe`, `MoTa`, `GhiChu`.
    - `MucDoUuTien`: `LOW`, `MEDIUM`, `HIGH`, `URGENT`.
@@ -81,6 +81,8 @@ Cơ sở dữ liệu được định nghĩa chuẩn hóa 3NF tại [CSDL_CHI_TI
     - Quản lý vai trò / phân quyền người dùng (`ROLE_USER`, `ROLE_ADMIN`).
 13. **`LichSuMedia` (Bảng `lich_su_media`, file `LichSuMedia.java`)**:
     - Lưu trữ lịch sử tải lên hình nền / video cá nhân hóa của người dùng.
+14. **`XacThucOtp` (Bảng `xacthucotp`, file `XacThucOtp.java`)**:
+    - Quản lý mã xác thực OTP 6 số gửi qua Gmail, hết hạn 5 phút, đếm số lần thử (tối đa 5 lần) phục vụ đặt lại mật khẩu an toàn.
 
 ---
 
@@ -199,6 +201,10 @@ app.cors.allowed-origins=${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://loc
 | :--- | :--- | :--- |
 | **Auth** | `POST /api/auth/login` | Đăng nhập nhận JWT Bearer token |
 | | `POST /api/auth/register` | Đăng ký tài khoản mới (mật khẩu 8-50 ký tự) |
+| | `POST /api/auth/google` | Đăng nhập / Đăng ký nhanh qua Google OAuth |
+| | `POST /api/auth/forgot-password` | Gửi mã xác thực OTP 6 số qua Gmail |
+| | `POST /api/auth/verify-otp` | Xác thực mã OTP 6 số từ Gmail |
+| | `POST /api/auth/reset-password` | Đặt lại mật khẩu mới bằng mã OTP |
 | | `POST /api/auth/verify-password` | Xác thực mật khẩu tài khoản / mật khẩu riêng tư |
 | | `POST /api/auth/change-password` | Đổi mật khẩu đăng nhập |
 | | `GET /api/auth/me` | Lấy thông tin tài khoản hiện tại |

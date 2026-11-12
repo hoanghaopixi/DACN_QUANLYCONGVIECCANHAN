@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, Trash2, X } from 'lucide-react';
+import { useModalAnimation } from '../hooks/useModalAnimation';
 
 interface ConfirmModalProps {
   isOpen: boolean;
@@ -29,16 +30,18 @@ export default function ConfirmModal({
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
+  const { shouldRender, isClosing } = useModalAnimation(isOpen, 180);
+
   useEffect(() => {
-    if (!isOpen) return;
+    if (!shouldRender) return;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = prevOverflow;
     };
-  }, [isOpen]);
+  }, [shouldRender]);
 
-  if (!isOpen || typeof document === 'undefined') return null;
+  if (!shouldRender || typeof document === 'undefined') return null;
 
   return createPortal(
     <div
@@ -55,7 +58,8 @@ export default function ConfirmModal({
         justifyContent: 'center',
         padding: 20,
         boxSizing: 'border-box',
-        animation: 'fadeIn 0.15s ease-out',
+        animation: isClosing ? 'modalBackdropFadeOut 0.18s ease-in forwards' : 'modalBackdropFadeIn 0.18s ease-out',
+        pointerEvents: isClosing ? 'none' : 'auto',
       }}
       onClick={onCancel}
     >
@@ -70,7 +74,9 @@ export default function ConfirmModal({
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
-          animation: 'slideUpToast 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+          animation: isClosing
+            ? 'slideDownToast 0.18s cubic-bezier(0.4, 0, 1, 1) forwards'
+            : 'slideUpToast 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
         }}
         onClick={(e) => e.stopPropagation()}
       >

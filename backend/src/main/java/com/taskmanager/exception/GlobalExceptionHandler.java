@@ -80,13 +80,29 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(err);
     }
 
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDenied(org.springframework.security.access.AccessDeniedException ex, HttpServletRequest request) {
+        ErrorResponse err = ErrorResponse.builder()
+                .success(false)
+                .status(HttpStatus.FORBIDDEN.value())
+                .error("Forbidden")
+                .message("Bạn không có quyền thực hiện thao tác này.")
+                .path(request.getRequestURI())
+                .build();
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(err);
+    }
+
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<ErrorResponse> handleRuntimeException(RuntimeException ex, HttpServletRequest request) {
+        String msg = ex.getMessage();
+        if (msg == null || msg.isBlank() || isTechnicalError(msg)) {
+            msg = "Yêu cầu không thể xử lý lúc này. Vui lòng thử lại.";
+        }
         ErrorResponse err = ErrorResponse.builder()
                 .success(false)
                 .status(HttpStatus.BAD_REQUEST.value())
                 .error("Bad Request")
-                .message(ex.getMessage() != null && !ex.getMessage().isBlank() ? ex.getMessage() : "Yêu cầu không thể xử lý")
+                .message(msg)
                 .path(request.getRequestURI())
                 .build();
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(err);
@@ -94,14 +110,27 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneralException(Exception ex, HttpServletRequest request) {
+        String msg = ex.getMessage();
+        if (msg == null || msg.isBlank() || isTechnicalError(msg)) {
+            msg = "Hệ thống đang gặp sự cố tạm thời. Vui lòng thử lại sau ít phút.";
+        }
         ErrorResponse err = ErrorResponse.builder()
                 .success(false)
                 .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
                 .error("Internal Server Error")
-                .message(ex.getMessage() != null && !ex.getMessage().isBlank() ? ex.getMessage() : "Đã xảy ra lỗi trên hệ thống máy chủ")
+                .message(msg)
                 .path(request.getRequestURI())
                 .build();
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(err);
+    }
+
+    private boolean isTechnicalError(String text) {
+        if (text == null) return true;
+        String lower = text.toLowerCase();
+        return lower.contains("exception") || lower.contains("nullpointer") || lower.contains("sql")
+                || lower.contains("syntax") || lower.contains("org.springframework") || lower.contains("hibernate")
+                || lower.contains("connection refused") || lower.contains("cannot create transaction")
+                || lower.contains("failed_reply") || lower.contains("classcast");
     }
 }
 

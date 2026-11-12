@@ -1360,6 +1360,33 @@ input:checked + .slider:before {
   display: block;
 }
 
+.preset-bg-thumb.preset-bg-video-thumb {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.9));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: #94A3B8;
+  user-select: none;
+}
+
+.preset-bg-video-icon {
+  color: var(--primary);
+  opacity: 0.85;
+  transition: transform 0.2s ease;
+}
+
+.preset-bg-card:hover .preset-bg-video-icon {
+  transform: scale(1.15);
+}
+
+.preset-bg-video-text {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #CBD5E1;
+}
+
 .preset-bg-badge {
   position: absolute;
   top: 4px;

@@ -2,6 +2,7 @@ package com.hhpc.smarttask.data.repository
 
 import android.content.Context
 import com.hhpc.smarttask.data.api.ApiClient
+import com.hhpc.smarttask.data.api.ApiErrorParser
 import com.hhpc.smarttask.data.model.ProductivityReportDto
 
 class ProductivityRepository(context: Context) {
@@ -13,10 +14,10 @@ class ProductivityRepository(context: Context) {
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!)
             } else {
-                Result.failure(Exception("Không thể tải báo cáo năng suất."))
+                Result.failure(Exception(ApiErrorParser.parseError(response, "Không thể tải báo cáo năng suất")))
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(ApiErrorParser.parseException(e, "Không thể tải báo cáo năng suất")))
         }
     }
 }

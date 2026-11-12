@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   User, Clock, Sparkles, Bell, ShieldCheck, Moon,
   Check, Info, LogOut, Lock, X, Camera, Upload, Trash2,
-  Palette, LucideIcon, Sun
+  Palette, LucideIcon, Sun, Film, KeyRound
 } from 'lucide-react';
 import { authService, AuthResponse } from '../../services/authService';
 import { preferenceService } from '../../services/preferenceService';
@@ -13,6 +13,8 @@ import AiPrivacyModal from '../../components/AiPrivacyModal';
 import HoverSelect from '../../components/HoverSelect';
 import { formatDateDDMMYYYY } from '../../utils/dateTimeFormat';
 import { runViewTransition } from '../../utils/viewTransition';
+import { formatApiErrorMessage } from '../../utils/apiErrorHandler';
+import { useSafeMediaBlob } from '../../utils/safeMedia';
 import './SettingsPage.css';
 
 export type SettingsTabId = 'account' | 'schedule' | 'ai' | 'appearance' | 'notifications';
@@ -35,7 +37,7 @@ interface SettingsPageProps {
   currentUser: AuthResponse | null;
   theme: 'light' | 'dark';
   onThemeChange: (theme: 'light' | 'dark') => void;
-  onUpdateProfile?: (updated: { fullName: string; phone?: string; avatarUrl?: string }) => void;
+  onUpdateProfile?: (updated: { fullName: string; phone?: string; avatarUrl?: string }, silent?: boolean) => void;
   onUpdateBackground?: (bg: { backgroundUrl?: string; backgroundType?: 'NONE' | 'IMAGE' | 'VIDEO'; overlayDarkness?: number }) => void;
   onLogout: () => void;
   onShowToast?: (msg: string) => void;
@@ -228,6 +230,12 @@ export default function SettingsPage({
     loadMediaHistory();
   }, []);
 
+  // Safe blob URL for live video background preview in settings (prevents IDM triggers)
+  const safeSettingsVideoUrl = useSafeMediaBlob(
+    settings.backgroundUrl,
+    settings.backgroundType === 'VIDEO'
+  );
+
   // Password Change Modal
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -236,6 +244,15 @@ export default function SettingsPage({
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  // Google Account Credentials Setup Modal (Tạo username & mật khẩu cho tài khoản Google)
+  const [isGoogleSetupModalOpen, setIsGoogleSetupModalOpen] = useState(false);
+  const [setupUsername, setSetupUsername] = useState(currentUser?.fullName || '');
+  const [setupPassword, setSetupPassword] = useState('');
+  const [setupConfirmPassword, setSetupConfirmPassword] = useState('');
+  const [setupError, setSetupError] = useState('');
+  const [setupSuccess, setSetupSuccess] = useState(false);
+  const [isSubmittingSetup, setIsSubmittingSetup] = useState(false);
 
   // Active Tab State (Browser-style tabs)
   const [activeTab, setActiveTab] = useState<SettingsTabId>('account');
@@ -262,10 +279,22 @@ export default function SettingsPage({
       }));
     }
 
+    // Refresh profile to have latest authProvider and hasPassword
+    authService.getProfile().then((profile) => {
+      if (profile) {
+        setSettings((prev) => ({
+          ...prev,
+          fullName: profile.fullName || prev.fullName,
+          phone: profile.phone || prev.phone,
+          avatarUrl: profile.avatarUrl || prev.avatarUrl,
+        }));
+      }
+    }).catch(() => { });
+
     preferenceService.getPreferences().then((pref) => {
       if (pref) {
         setSettings((prev) => {
-          const updated = {
+          const updated: UserSettingsData = {
             ...prev,
             workHours: `${pref.workStartTime || '08:00'} - ${pref.workEndTime || '18:00'}`,
             bufferMinutes: `${pref.bufferMinutes || 15} phút`,
@@ -273,10 +302,28 @@ export default function SettingsPage({
             backgroundUrl: pref.backgroundUrl || prev.backgroundUrl || '',
             backgroundType: (pref.backgroundType as any) || prev.backgroundType || 'NONE',
             overlayDarkness: pref.overlayDarkness !== undefined ? pref.overlayDarkness : (prev.overlayDarkness ?? 50),
+            lunchBreak: (pref.lunchBreakStart && pref.lunchBreakEnd) ? `${pref.lunchBreakStart} - ${pref.lunchBreakEnd}` : prev.lunchBreak,
+            allowWeekend: pref.allowWeekendTasks ?? pref.allowWeekends ?? prev.allowWeekend,
+            autoScheduleUnscheduled: pref.aiAutoFindSlot ?? pref.autoFindGaps ?? prev.autoScheduleUnscheduled,
+            alwaysAskBeforeChange: pref.aiAlwaysAskBeforeChange ?? pref.alwaysAskBeforeReschedule ?? prev.alwaysAskBeforeChange,
+            allowSplitLongTasks: pref.aiAllowSplitLongTasks ?? pref.allowTaskBreakdown ?? prev.allowSplitLongTasks,
+            autoMoveFixedTasks: pref.aiAutoMoveFixedTasks ?? pref.autoRescheduleFixedTasks ?? prev.autoMoveFixedTasks,
+            reminderBefore: (pref.reminderMinutesBefore ?? pref.reminderBeforeMinutes) !== undefined ? `${pref.reminderMinutesBefore ?? pref.reminderBeforeMinutes} phút` : prev.reminderBefore,
+            dndHours: (pref.dndStartTime && pref.dndEndTime) ? `${pref.dndStartTime} - ${pref.dndEndTime}` : (pref.doNotDisturbStart && pref.doNotDisturbEnd) ? `${pref.doNotDisturbStart} - ${pref.doNotDisturbEnd}` : prev.dndHours,
+            browserNotifications: pref.enableDeviceNotifications ?? pref.deviceNotifications ?? prev.browserNotifications,
+            morningSummaryEmail: pref.enableMorningSummaryEmail ?? pref.morningBriefingEmail ?? prev.morningSummaryEmail,
+            language: pref.language || prev.language,
+            timezone: pref.timeZone ? (pref.timeZone.includes('Ho_Chi_Minh') ? '(GMT+07:00) Hồ Chí Minh' : pref.timeZone) : prev.timezone,
           };
           setInitialSettings(updated);
           return updated;
         });
+        if (pref.theme && onThemeChange) {
+          const loadedTheme = pref.theme.toLowerCase() === 'dark' ? 'dark' : 'light';
+          if (loadedTheme !== theme) {
+            onThemeChange(loadedTheme);
+          }
+        }
         if (onUpdateBackground) {
           onUpdateBackground({
             backgroundUrl: pref.backgroundUrl || '',
@@ -286,7 +333,7 @@ export default function SettingsPage({
         }
       }
     }).catch(() => { });
-  }, [currentUser]);
+  }, [currentUser?.email]);
 
   // Check if dirty
   useEffect(() => {
@@ -461,6 +508,10 @@ export default function SettingsPage({
     };
     localStorage.setItem('smarttask_preferences', JSON.stringify(legacyPrefs));
 
+    const [lunchStart, lunchEnd] = parseTimeRange(settings.lunchBreak, '12:00', '13:00');
+    const [dndStartVal, dndEndVal] = parseTimeRange(settings.dndHours, '22:00', '07:00');
+    const reminderMin = parseInt(settings.reminderBefore, 10) || 15;
+
     try {
       await Promise.all([
         authService.updateProfile({
@@ -479,6 +530,30 @@ export default function SettingsPage({
           backgroundUrl: settings.backgroundUrl,
           backgroundType: settings.backgroundType,
           overlayDarkness: settings.overlayDarkness,
+          lunchBreakStart: lunchStart,
+          lunchBreakEnd: lunchEnd,
+          allowWeekendTasks: settings.allowWeekend,
+          allowWeekends: settings.allowWeekend,
+          aiAutoFindSlot: settings.autoScheduleUnscheduled,
+          autoFindGaps: settings.autoScheduleUnscheduled,
+          aiAlwaysAskBeforeChange: settings.alwaysAskBeforeChange,
+          alwaysAskBeforeReschedule: settings.alwaysAskBeforeChange,
+          aiAllowSplitLongTasks: settings.allowSplitLongTasks,
+          allowTaskBreakdown: settings.allowSplitLongTasks,
+          aiAutoMoveFixedTasks: settings.autoMoveFixedTasks,
+          autoRescheduleFixedTasks: settings.autoMoveFixedTasks,
+          reminderMinutesBefore: reminderMin,
+          reminderBeforeMinutes: reminderMin,
+          dndStartTime: dndStartVal,
+          doNotDisturbStart: dndStartVal,
+          dndEndTime: dndEndVal,
+          doNotDisturbEnd: dndEndVal,
+          enableDeviceNotifications: settings.browserNotifications,
+          deviceNotifications: settings.browserNotifications,
+          enableMorningSummaryEmail: settings.morningSummaryEmail,
+          morningBriefingEmail: settings.morningSummaryEmail,
+          language: settings.language,
+          theme: theme.toUpperCase(),
         }),
       ]);
     } catch (err) {
@@ -486,7 +561,7 @@ export default function SettingsPage({
     }
 
     if (onUpdateProfile) {
-      onUpdateProfile({ fullName: settings.fullName, phone: settings.phone, avatarUrl: settings.avatarUrl });
+      onUpdateProfile({ fullName: settings.fullName, phone: settings.phone, avatarUrl: settings.avatarUrl }, true);
     }
 
     if (onUpdateBackground) {
@@ -554,10 +629,83 @@ export default function SettingsPage({
         }
       }, 1000);
     } catch (err: any) {
-      const msg = err.response?.data?.message || err.message || 'Mật khẩu hiện tại không chính xác';
+      const msg = formatApiErrorMessage(err, 'Mật khẩu hiện tại không chính xác. Vui lòng thử lại.');
       setPasswordError(msg);
     } finally {
       setIsChangingPassword(false);
+    }
+  };
+
+  const handleOpenPasswordAction = () => {
+    const user = currentUser || authService.getCurrentUser();
+    const isGoogleWithoutPassword = user?.authProvider === 'GOOGLE' && user?.hasPassword !== true;
+
+    if (isGoogleWithoutPassword) {
+      setSetupUsername(user?.fullName || settings.fullName || '');
+      setSetupPassword('');
+      setSetupConfirmPassword('');
+      setSetupError('');
+      setSetupSuccess(false);
+      runViewTransition(() => setIsGoogleSetupModalOpen(true));
+    } else {
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordError('');
+      setPasswordSuccess(false);
+      runViewTransition(() => setIsPasswordModalOpen(true));
+    }
+  };
+
+  const handleGoogleSetupSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSetupError('');
+
+    if (!setupUsername || setupUsername.trim().length < 2) {
+      setSetupError('Tên người dùng / họ và tên phải từ 2 đến 100 ký tự');
+      return;
+    }
+    if (setupPassword.length < 8 || setupPassword.length > 50
+        || new TextEncoder().encode(setupPassword).length > 72) {
+      setSetupError('Mật khẩu mới phải có từ 8 đến 50 ký tự và không vượt quá giới hạn mã hóa.');
+      return;
+    }
+    if (setupPassword !== setupConfirmPassword) {
+      setSetupError('Xác nhận mật khẩu mới không khớp');
+      return;
+    }
+
+    setIsSubmittingSetup(true);
+    try {
+      const updatedUser = await authService.setPassword({
+        username: setupUsername.trim(),
+        newPassword: setupPassword,
+      });
+
+      setSetupSuccess(true);
+      setSettings((prev) => ({
+        ...prev,
+        fullName: updatedUser.fullName || prev.fullName,
+      }));
+
+      if (onUpdateProfile) {
+        onUpdateProfile({
+          fullName: updatedUser.fullName,
+          phone: updatedUser.phone,
+          avatarUrl: updatedUser.avatarUrl,
+        });
+      }
+      onShowToast?.('✓ Đã tạo tên người dùng và mật khẩu thành công! Bây giờ bạn đã có thể đổi mật khẩu bất cứ lúc nào.');
+
+      setTimeout(() => {
+        setSetupSuccess(false);
+        runViewTransition(() => setIsGoogleSetupModalOpen(false));
+      }, 1000);
+    } catch (err: any) {
+      const msg = formatApiErrorMessage(err, 'Không thể thiết lập mật khẩu cho tài khoản Google.');
+      setSetupError(msg);
+    } finally {
+      setIsSubmittingSetup(false);
     }
   };
 
@@ -1110,7 +1258,7 @@ export default function SettingsPage({
         <div className="bg-preview-box">
           {settings.backgroundType === 'VIDEO' ? (
             <video
-              src={settings.backgroundUrl}
+              src={safeSettingsVideoUrl || undefined}
               autoPlay
               loop
               muted
@@ -1129,8 +1277,8 @@ export default function SettingsPage({
             className="bg-preview-overlay"
             style={{
               backgroundColor: (typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'dark')
-                ? `rgba(10, 15, 30, ${Math.max(45, settings.overlayDarkness ?? 50) / 100})`
-                : `rgba(248, 250, 252, ${Math.max(45, settings.overlayDarkness ?? 50) / 100})`,
+                ? `rgba(10, 15, 30, ${(settings.overlayDarkness ?? 50) / 100})`
+                : `rgba(248, 250, 252, ${(settings.overlayDarkness ?? 50) / 100})`,
             }}
           >
             <span className="bg-preview-badge">
@@ -1146,7 +1294,7 @@ export default function SettingsPage({
                 fontWeight: 700,
               }}
             >
-              Độ phủ {(typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'dark') ? 'tối' : 'sáng'}: {Math.max(45, settings.overlayDarkness ?? 50)}%
+              Độ phủ {(typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'dark') ? 'tối' : 'sáng'}: {settings.overlayDarkness ?? 50}%
             </span>
           </div>
         </div>
@@ -1189,36 +1337,70 @@ export default function SettingsPage({
             <span className="darkness-label">
               Độ phủ hình nền ({(typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'dark') ? 'Phủ tối' : 'Phủ sáng'})
             </span>
-          <span className="darkness-value-badge">{Math.max(45, settings.overlayDarkness ?? 50)}%</span>
+            <span className="darkness-value-badge">{settings.overlayDarkness ?? 50}%</span>
           </div>
           <div className="darkness-hint">
             {(typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'dark') ? (
-              Math.max(45, settings.overlayDarkness ?? 50) === 50
-                ? '50% (Đề xuất cho giao diện tối: nền chìm vừa đủ, chữ rõ)'
-                : 'Lớp phủ tối luôn giữ tối thiểu 45% để chữ dễ đọc'
+              (settings.overlayDarkness ?? 50) === 45
+                ? '45% (Cân bằng lý tưởng cho giao diện tối: ảnh nền nổi bật, chữ rõ nét)'
+                : (settings.overlayDarkness ?? 50) === 50
+                ? '50% (Đề xuất chuẩn cho giao diện tối)'
+                : 'Tùy chỉnh linh hoạt độ phủ từ 0% đến 100%'
             ) : (
-              Math.max(45, settings.overlayDarkness ?? 50) === 50
-                ? '50% (Đề xuất cho giao diện sáng: ảnh nền dịu hơn, chữ dễ đọc)'
-                : 'Lớp phủ sáng luôn giữ tối thiểu 45% để chữ dễ đọc'
+              (settings.overlayDarkness ?? 50) === 45
+                ? '45% (Cân bằng lý tưởng cho giao diện sáng: ảnh nền dịu mắt)'
+                : (settings.overlayDarkness ?? 50) === 50
+                ? '50% (Đề xuất chuẩn cho giao diện sáng)'
+                : 'Tùy chỉnh linh hoạt độ phủ từ 0% đến 100%'
             )}
           </div>
         </div>
 
         <div className="slider-container">
-          <span className="slider-limit">45%</span>
+          <span className="slider-limit">0%</span>
           <input
             type="range"
-            min="45"
-            max="90"
-            step="5"
-            value={Math.max(45, settings.overlayDarkness ?? 50)}
+            min="0"
+            max="100"
+            step="1"
+            value={settings.overlayDarkness ?? 50}
             onChange={(e) => handleDarknessChange(parseInt(e.target.value, 10))}
             className="darkness-range-slider"
           />
-          <span className="slider-limit">90%</span>
+          <span className="slider-limit">100%</span>
+        </div>
+
+        {/* Nút bấm thiết lập nhanh các mốc phổ biến */}
+        <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+          {[
+            { val: 30, label: '30% (Nhẹ)' },
+            { val: 45, label: '45% (Cân bằng)' },
+            { val: 50, label: '50% (Đề xuất)' },
+            { val: 65, label: '65% (Đậm)' },
+            { val: 80, label: '80% (Tối sâu)' },
+          ].map((preset) => (
+            <button
+              key={preset.val}
+              type="button"
+              onClick={() => handleDarknessChange(preset.val)}
+              style={{
+                padding: '4px 10px',
+                borderRadius: 8,
+                fontSize: '0.78rem',
+                fontWeight: (settings.overlayDarkness ?? 50) === preset.val ? 700 : 500,
+                background: (settings.overlayDarkness ?? 50) === preset.val ? 'var(--primary)' : 'var(--surface-hover)',
+                color: (settings.overlayDarkness ?? 50) === preset.val ? '#fff' : 'var(--text)',
+                border: (settings.overlayDarkness ?? 50) === preset.val ? '1px solid var(--primary)' : '1px solid var(--border)',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              {preset.label}
+            </button>
+          ))}
         </div>
       </div>
-        </div>
+    </div>
 
       {/* Lịch sử hình nền & video cá nhân đã tải lên */}
       <div className="preset-bg-section">
@@ -1244,9 +1426,12 @@ export default function SettingsPage({
                   style={{ position: 'relative' }}
                 >
                   {isVideo ? (
-                    <video src={bg.url} className="preset-bg-thumb" muted />
+                    <div className="preset-bg-thumb preset-bg-video-thumb">
+                      <Film size={26} className="preset-bg-video-icon" />
+                      <span className="preset-bg-video-text">Video nền</span>
+                    </div>
                   ) : (
-                    <img src={bg.url} alt="Hình nền lịch sử" className="preset-bg-thumb" />
+                    <img src={bg.url} alt="Hình nền lịch sử" className="preset-bg-thumb" loading="lazy" />
                   )}
                   <div className="preset-bg-badge">
                     {isVideo ? '▶ Video' : 'Ảnh'}
@@ -1383,37 +1568,43 @@ export default function SettingsPage({
     </div>
   );
 
-  // Card 6: Bảo mật tài khoản
+  // Card 6: Đổi mật khẩu
   const securityCard = (
-    <div className="settings-card">
+    <div className="settings-card security-card">
       <div className="settings-card-header">
-        <div className="card-icon-badge shield-badge">
-          <ShieldCheck size={18} />
+        <div className="card-icon-badge" style={{ background: 'var(--primary-bg)', color: 'var(--primary)' }}>
+          <KeyRound size={18} />
         </div>
         <div>
-          <h2 className="card-title">Bảo mật tài khoản</h2>
-          <p className="card-subtitle">Dữ liệu lịch chỉ thuộc về bạn.</p>
+          <h2 className="card-title">Đổi mật khẩu</h2>
+          <p className="card-subtitle">Bảo mật tài khoản và cập nhật mật khẩu đăng nhập của bạn.</p>
         </div>
       </div>
 
       <div className="security-row">
         <div className="security-info">
           <span className="security-label">Mật khẩu</span>
-          <span className="security-mask">••••••••</span>
+          <span className="security-mask">
+            {currentUser?.authProvider === 'GOOGLE' && !currentUser?.hasPassword
+              ? 'Chưa tạo mật khẩu (Đăng nhập Google)'
+              : '••••••••'}
+          </span>
         </div>
         <button
           type="button"
           className="btn-change-password"
-          onClick={() => runViewTransition(() => setIsPasswordModalOpen(true))}
+          onClick={handleOpenPasswordAction}
         >
-          Đổi mật khẩu
+          {currentUser?.authProvider === 'GOOGLE' && !currentUser?.hasPassword
+            ? 'Tạo tài khoản & Mật khẩu'
+            : 'Đổi mật khẩu'}
         </button>
       </div>
 
       <div className="device-session-row">
         <div className="device-info">
           <div className="device-title">Chrome · Windows</div>
-          <div className="device-subtitle">Phiên hiện tại · Thành phố Hồ Chí Minh</div>
+          <div className="device-subtitle">Phiên làm việc hiện tại · Việt Nam (GMT+7)</div>
         </div>
       </div>
 
@@ -1615,6 +1806,104 @@ export default function SettingsPage({
                 </button>
                 <button type="submit" className="btn-primary-save" disabled={isChangingPassword}>
                   {isChangingPassword ? 'Đang xác thực...' : 'Xác nhận đổi mật khẩu'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ── Google Account Credentials Setup Modal ── */}
+      {isGoogleSetupModalOpen && typeof document !== 'undefined' && createPortal(
+        <div className="password-modal-backdrop" onClick={() => runViewTransition(() => setIsGoogleSetupModalOpen(false))}>
+          <div className="password-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="password-modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <KeyRound size={18} style={{ color: 'var(--primary)' }} />
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 600, margin: 0 }}>Tạo tên người dùng &amp; Mật khẩu tài khoản</h3>
+              </div>
+              <button
+                type="button"
+                className="close-btn"
+                onClick={() => runViewTransition(() => setIsGoogleSetupModalOpen(false))}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleGoogleSetupSubmit}>
+              <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div style={{ fontSize: '0.84rem', color: 'var(--text-muted)', lineHeight: 1.5, background: 'var(--primary-bg)', padding: '10px 14px', borderRadius: 8, border: '1px solid color-mix(in srgb, var(--primary) 20%, transparent)' }}>
+                  💡 Tài khoản của bạn hiện đang đăng nhập qua <strong>Google</strong> nên chưa có mật khẩu cá nhân. Vui lòng đặt tên người dùng và mật khẩu để có thể đổi mật khẩu và đăng nhập trực tiếp bất cứ lúc nào!
+                </div>
+
+                {setupError && (
+                  <div className="password-alert error">{setupError}</div>
+                )}
+                {setupSuccess && (
+                  <div className="password-alert success">Tạo tài khoản và mật khẩu thành công!</div>
+                )}
+
+                <div className="form-group">
+                  <label className="form-label">Email tài khoản</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={currentUser?.email || settings.email}
+                    disabled
+                    style={{ opacity: 0.7, cursor: 'not-allowed', background: 'var(--border-light)' }}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Tên người dùng / Họ và tên *</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={setupUsername}
+                    onChange={(e) => setSetupUsername(e.target.value)}
+                    placeholder="Nhập tên người dùng hoặc họ tên"
+                    autoFocus
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Mật khẩu mới * (tối thiểu 8 ký tự)</label>
+                  <input
+                    type="password"
+                    className="form-input"
+                    value={setupPassword}
+                    onChange={(e) => setSetupPassword(e.target.value)}
+                    placeholder="Nhập mật khẩu mới"
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Xác nhận mật khẩu mới *</label>
+                  <input
+                    type="password"
+                    className="form-input"
+                    value={setupConfirmPassword}
+                    onChange={(e) => setSetupConfirmPassword(e.target.value)}
+                    placeholder="Nhập lại mật khẩu mới"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="password-modal-footer">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => runViewTransition(() => setIsGoogleSetupModalOpen(false))}
+                >
+                  Đóng
+                </button>
+                <button type="submit" className="btn-primary-save" disabled={isSubmittingSetup}>
+                  {isSubmittingSetup ? 'Đang lưu...' : 'Tạo tài khoản & Mật khẩu'}
                 </button>
               </div>
             </form>

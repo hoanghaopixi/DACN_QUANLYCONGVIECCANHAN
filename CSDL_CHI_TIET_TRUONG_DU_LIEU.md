@@ -48,13 +48,14 @@ Lưu trữ thông tin định danh người dùng trên toàn hệ thống.
 | :--- | :--- | :--- | :--- | :--- |
 | `id` | `BIGSERIAL` | PRIMARY KEY | Tự tăng | Khóa chính định danh duy nhất người dùng. |
 | `Email` | `VARCHAR(120)` | NOT NULL, UNIQUE | | Địa chỉ email đăng nhập, dùng để xác thực và nhận thông báo. |
-| `MatKhau` | `VARCHAR(255)` | NOT NULL | | Mật khẩu đã được băm an toàn bằng thuật toán BCrypt. |
+| `MatKhau` | `VARCHAR(255)` | NULL | NULL | Mật khẩu đã được băm an toàn bằng thuật toán BCrypt (NULL khi đăng ký qua Google OAuth). |
+| `GoogleId` | `VARCHAR(100)` | NULL, UNIQUE | NULL | Mã định danh người dùng Google OAuth khi đăng nhập qua Google. |
 | `HoVaTen` | `VARCHAR(100)` | NOT NULL | | Họ tên hiển thị của người dùng (ví dụ: *"Minh Anh"* trên giao diện). |
 | `SoDienThoai` | `VARCHAR(20)` | NULL | NULL | Số điện thoại liên hệ (phục vụ SMS nhắc nhở khẩn cấp nếu có). |
 | `AnhDaiDien` | `VARCHAR(500)` | NULL | NULL | Đường dẫn ảnh đại diện. Nếu rỗng, giao diện hiển thị avatar chữ cái viết tắt (như *"MA"*). |
 | `NguonXacThuc` | `VARCHAR(20)` | NOT NULL | `'LOCAL'` | Phương thức xác thực: `'LOCAL'` (Email/Password) hoặc `'GOOGLE'` (OAuth2). |
 | `KichHoat` | `BOOLEAN` | NOT NULL | `TRUE` | Trạng thái kích hoạt tài khoản. `FALSE` khi tài khoản bị khóa. |
-| `XacThucEmail` | `BOOLEAN` | NOT NULL | `FALSE` | Trạng thái xác thực email sau khi đăng ký. |
+| `XacThucEmail` | `BOOLEAN` | NOT NULL | `FALSE` | Trạng thái xác thực email sau khi đăng ký hoặc qua OTP. |
 | `NgayTao` | `TIMESTAMPTZ` | NOT NULL | `CURRENT_TIMESTAMP` | Thời điểm đăng ký tài khoản. |
 | `NgayCapNhat` | `TIMESTAMPTZ` | NOT NULL | `CURRENT_TIMESTAMP` | Thời điểm cập nhật thông tin cá nhân lần gần nhất. |
 
@@ -296,6 +297,22 @@ Cung cấp số liệu cho thanh thống kê dưới đáy màn hình (**StatsBa
 | `NhanXetAI` | `TEXT` | NULL | NULL | Nhận xét và khuyến nghị ngắn của AI gửi cho người dùng mỗi cuối ngày. |
 | `NgayTao` | `TIMESTAMPTZ` | NOT NULL | `CURRENT_TIMESTAMP` | Thời điểm tổng hợp dữ liệu. |
 *(Ràng buộc duy nhất: `CONSTRAINT uq_nhatkynangsuat_ngaybaocao UNIQUE ("NguoiDungId", "NgayBaoCao")`)*
+
+---
+
+### 2.15. Bảng `xacthucotp` (Xác thực mã OTP Quên mật khẩu qua Gmail)
+Quản lý vòng đời mã xác thực một lần (OTP 6 số), thời gian hiệu lực và phòng chống brute-force khi người dùng đặt lại mật khẩu.
+
+| Tên trường | Kiểu dữ liệu | Ràng buộc | Giá trị mặc định | Giải thích ý nghĩa & Nghiệp vụ |
+| :--- | :--- | :--- | :--- | :--- |
+| `id` | `BIGSERIAL` | PRIMARY KEY | Tự tăng | Khóa chính bản ghi OTP. |
+| `Email` | `VARCHAR(120)` | NOT NULL | | Địa chỉ Gmail tiếp nhận mã xác thực. |
+| `MaOtp` | `VARCHAR(10)` | NOT NULL | | Mã OTP 6 chữ số ngẫu nhiên an toàn. |
+| `LoaiOtp` | `VARCHAR(30)` | NOT NULL | `'FORGOT_PASSWORD'` | Loại nghiệp vụ: `'FORGOT_PASSWORD'`, `'VERIFY_EMAIL'`. |
+| `ThoiGianHetHan` | `TIMESTAMPTZ` | NOT NULL | | Hạn sử dụng mã (mặc định 5 phút kể từ lúc gửi). |
+| `DaSuDung` | `BOOLEAN` | NOT NULL | `FALSE` | Đánh dấu đã sử dụng để chống dùng lại mã cũ. |
+| `SoLanThu` | `INT` | NOT NULL | `0` | Đếm số lần nhập sai. Tự động khóa mã sau 5 lần thử. |
+| `NgayTao` | `TIMESTAMPTZ` | NOT NULL | `CURRENT_TIMESTAMP` | Thời điểm phát sinh mã OTP. |
 
 ---
 

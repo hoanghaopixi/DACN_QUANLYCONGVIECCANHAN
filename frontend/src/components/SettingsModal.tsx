@@ -2,10 +2,13 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
   X, User, Mail, Phone, ShieldCheck, Clock,
-  Sliders, Save, CheckCircle2, Moon, Sun
+  Sliders, Save, CheckCircle2, Moon, Sun, AlertCircle
 } from 'lucide-react';
+import { authService } from '../services/authService';
+import { formatApiErrorMessage } from '../utils/apiErrorHandler';
 import Time24Input from './Time24Input';
 import HoverSelect from './HoverSelect';
+import { useModalAnimation } from '../hooks/useModalAnimation';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -24,6 +27,7 @@ export default function SettingsModal({
   onToggleTheme,
   onUpdateProfile,
 }: SettingsModalProps) {
+  const { shouldRender, isClosing } = useModalAnimation(isOpen, 200);
   const [activeTab, setActiveTab] = useState<'profile' | 'schedule' | 'security'>('profile');
   const [fullName, setFullName] = useState(currentUser?.fullName || 'Minh Anh');
   const [phone, setPhone] = useState('0901234567');
@@ -35,20 +39,56 @@ export default function SettingsModal({
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!shouldRender) return;
+    setErrorMessage('');
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = prevOverflow;
     };
-  }, [isOpen]);
+  }, [shouldRender]);
 
-  if (!isOpen || typeof document === 'undefined') return null;
+  if (!shouldRender || typeof document === 'undefined') return null;
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage('');
+
+    if (activeTab === 'security' && (currentPassword || newPassword)) {
+      if (!currentPassword) {
+        setErrorMessage('Vui lòng nhập mật khẩu hiện tại');
+        return;
+      }
+      if (!newPassword || newPassword.length < 8) {
+        setErrorMessage('Mật khẩu mới phải có tối thiểu 8 ký tự');
+        return;
+      }
+      try {
+        setIsSubmitting(true);
+        const res = await authService.changePassword({ currentPassword, newPassword });
+        if (res.success) {
+          setCurrentPassword('');
+          setNewPassword('');
+          setSaveSuccess(true);
+          setTimeout(() => {
+            setSaveSuccess(false);
+            onClose();
+          }, 1200);
+          return;
+        }
+      } catch (err: any) {
+        const msg = formatApiErrorMessage(err, 'Đổi mật khẩu thất bại. Vui lòng kiểm tra lại.');
+        setErrorMessage(msg);
+        return;
+      } finally {
+        setIsSubmitting(false);
+      }
+    }
+
     if (onUpdateProfile) {
       onUpdateProfile({ fullName, phone });
     }
@@ -96,6 +136,8 @@ export default function SettingsModal({
         alignItems: 'center',
         justifyContent: 'center',
         padding: 20,
+        animation: isClosing ? 'modalBackdropFadeOut 0.2s ease-in forwards' : 'modalBackdropFadeIn 0.2s ease-out',
+        pointerEvents: isClosing ? 'none' : 'auto',
       }}
       onClick={onClose}
     >
@@ -111,6 +153,9 @@ export default function SettingsModal({
           flexDirection: 'column',
           border: '1px solid var(--border)',
           maxHeight: '90vh',
+          animation: isClosing
+            ? 'modalSlideDown 0.2s cubic-bezier(0.4, 0, 1, 1) forwards'
+            : 'modalSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -521,6 +566,27 @@ export default function SettingsModal({
             </div>
           )}
 
+          {/* Error alert */}
+          {errorMessage && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 14px',
+                borderRadius: 8,
+                background: '#FEF2F2',
+                border: '1px solid #FECACA',
+                color: '#DC2626',
+                fontSize: '0.82rem',
+                fontWeight: 600,
+              }}
+            >
+              <AlertCircle size={16} />
+              <span>{errorMessage}</span>
+            </div>
+          )}
+
           {/* Success alert */}
           {saveSuccess && (
             <div
@@ -572,6 +638,7 @@ export default function SettingsModal({
             </button>
             <button
               type="submit"
+              disabled={isSubmitting}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -582,12 +649,13 @@ export default function SettingsModal({
                 color: 'var(--on-primary)',
                 fontSize: '0.88rem',
                 fontWeight: 600,
-                cursor: 'pointer',
+                cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                opacity: isSubmitting ? 0.75 : 1,
                 boxShadow: 'none',
               }}
             >
               <Save size={16} />
-              <span>Lưu thiết lập</span>
+              <span>{isSubmitting ? 'Đang lưu...' : 'Lưu thiết lập'}</span>
             </button>
           </div>
         </form>

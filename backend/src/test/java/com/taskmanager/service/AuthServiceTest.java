@@ -37,6 +37,12 @@ class AuthServiceTest {
     @Mock
     private JwtTokenService jwtTokenService;
 
+    @Mock
+    private com.taskmanager.repository.XacThucOtpRepository xacThucOtpRepository;
+
+    @Mock
+    private EmailService emailService;
+
     @InjectMocks
     private AuthService authService;
 
@@ -143,5 +149,120 @@ class AuthServiceTest {
 
         BadCredentialsException ex = assertThrows(BadCredentialsException.class, () -> authService.verifyPassword(1L, "wrong_pass"));
         assertEquals("Mật khẩu không chính xác. Vui lòng kiểm tra lại!", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("forgotPassword thành công khi email tồn tại")
+    void forgotPassword_Success() {
+        when(userRepository.existsByEmailIgnoreCase("test@example.com")).thenReturn(true);
+        when(xacThucOtpRepository.countByEmailAndOtpTypeAndCreatedAtAfter(eq("test@example.com"), eq("FORGOT_PASSWORD"), any())).thenReturn(0L);
+
+        java.util.Map<String, Object> response = authService.forgotPassword(new AuthDto.ForgotPasswordRequest("test@example.com"));
+
+        assertEquals(true, response.get("success"));
+        verify(emailService, times(1)).sendOtpEmail(eq("test@example.com"), anyString(), any());
+        verify(xacThucOtpRepository, times(1)).save(any());
+    }
+
+    @Test
+    @DisplayName("forgotPassword trả về generic message khi email không tồn tại để bảo mật")
+    void forgotPassword_EmailNotFound_StillReturnsSuccessGenericMessage() {
+        when(userRepository.existsByEmailIgnoreCase("unknown@example.com")).thenReturn(false);
+        when(userRepository.existsByEmail("unknown@example.com")).thenReturn(false);
+
+        java.util.Map<String, Object> response = authService.forgotPassword(new AuthDto.ForgotPasswordRequest("unknown@example.com"));
+
+        assertEquals(true, response.get("success"));
+        verify(emailService, never()).sendOtpEmail(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("sendRegisterOtp thành công khi email chưa tồn tại")
+    void sendRegisterOtp_Success() {
+        when(userRepository.existsByEmailIgnoreCase("newuser@example.com")).thenReturn(false);
+        when(userRepository.existsByEmail("newuser@example.com")).thenReturn(false);
+        when(xacThucOtpRepository.countByEmailAndOtpTypeAndCreatedAtAfter(eq("newuser@example.com"), eq("REGISTER"), any())).thenReturn(0L);
+
+        java.util.Map<String, Object> response = authService.sendRegisterOtp(new AuthDto.SendRegisterOtpRequest("Nguyen Van A", "newuser@example.com"));
+
+        assertEquals(true, response.get("success"));
+        verify(emailService, times(1)).sendRegisterOtpEmail(eq("newuser@example.com"), anyString(), eq("Nguyen Van A"));
+        verify(xacThucOtpRepository, times(1)).save(any());
+    }
+
+    @Test
+    @DisplayName("sendRegisterOtp ném IllegalArgumentException khi email đã được đăng ký")
+    void sendRegisterOtp_EmailAlreadyExists_ThrowsException() {
+        when(userRepository.existsByEmailIgnoreCase("existing@example.com")).thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
+                authService.sendRegisterOtp(new AuthDto.SendRegisterOtpRequest("Nguyen Van A", "existing@example.com")));
+        assertTrue(ex.getMessage().contains("đã được sử dụng"));
+        verify(emailService, never()).sendRegisterOtpEmail(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("register ném IllegalArgumentException khi mã OTP không đúng")
+    void register_InvalidOtp_ThrowsException() {
+        when(userRepository.existsByEmailIgnoreCase("newuser@example.com")).thenReturn(false);
+        when(userRepository.existsByEmail("newuser@example.com")).thenReturn(false);
+
+        com.taskmanager.entity.XacThucOtp otpRecord = com.taskmanager.entity.XacThucOtp.builder()
+                .email("newuser@example.com")
+                .otpCode("123456")
+                .otpType("REGISTER")
+                .expiresAt(java.time.OffsetDateTime.now().plusMinutes(5))
+                .isUsed(false)
+                .attempts(0)
+                .build();
+        when(xacThucOtpRepository.findTopByEmailAndOtpTypeAndIsUsedFalseOrderByCreatedAtDesc("newuser@example.com", "REGISTER"))
+                .thenReturn(Optional.of(otpRecord));
+
+        AuthDto.RegisterRequest request = new AuthDto.RegisterRequest("Nguyen Van A", "newuser@example.com", "password123", "999999");
+
+        BadCredentialsException ex = assertThrows(BadCredentialsException.class, () -> authService.register(request));
+        assertTrue(ex.getMessage().contains("không chính xác"));
+        assertEquals(1, otpRecord.getAttempts());
+    }
+
+    @Test
+    @DisplayName("register thành công khi mã OTP chính xác")
+    void register_ValidOtp_Success() {
+        when(userRepository.existsByEmailIgnoreCase("newuser@example.com")).thenReturn(false);
+        when(userRepository.existsByEmail("newuser@example.com")).thenReturn(false);
+
+        com.taskmanager.entity.XacThucOtp otpRecord = com.taskmanager.entity.XacThucOtp.builder()
+                .email("newuser@example.com")
+                .otpCode("123456")
+                .otpType("REGISTER")
+                .expiresAt(java.time.OffsetDateTime.now().plusMinutes(5))
+                .isUsed(false)
+                .attempts(0)
+                .build();
+        when(xacThucOtpRepository.findTopByEmailAndOtpTypeAndIsUsedFalseOrderByCreatedAtDesc("newuser@example.com", "REGISTER"))
+                .thenReturn(Optional.of(otpRecord));
+
+        VaiTro role = VaiTro.builder().id(1).name("ROLE_USER").build();
+        when(roleRepository.findByName("ROLE_USER")).thenReturn(Optional.of(role));
+        when(passwordEncoder.encode("password123")).thenReturn("hashed_pass");
+
+        NguoiDung savedUser = NguoiDung.builder()
+                .id(99L)
+                .fullName("Nguyen Van A")
+                .email("newuser@example.com")
+                .passwordHash("hashed_pass")
+                .isActive(true)
+                .roles(Set.of(role))
+                .build();
+        when(userRepository.save(any(NguoiDung.class))).thenReturn(savedUser);
+        when(jwtTokenService.issueToken(any(NguoiDung.class))).thenReturn("token-register-123");
+
+        AuthDto.RegisterRequest request = new AuthDto.RegisterRequest("Nguyen Van A", "newuser@example.com", "password123", "123456");
+        AuthDto.AuthResponse response = authService.register(request);
+
+        assertNotNull(response);
+        assertEquals("newuser@example.com", response.getEmail());
+        assertEquals("token-register-123", response.getToken());
+        assertTrue(otpRecord.getIsUsed());
     }
 }

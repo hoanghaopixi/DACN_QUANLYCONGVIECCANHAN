@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Bell, CheckCheck, Clock, Sparkles, CheckCircle2, AlertTriangle, Trash2, X, RefreshCw } from 'lucide-react';
+import { Bell, CheckCheck, Clock, Sparkles, CheckCircle2, AlertTriangle, Trash2, X } from 'lucide-react';
 import { notificationService, NotificationItem } from '../services/notificationService';
 import { formatDateDDMMYYYY } from '../utils/dateTimeFormat';
 
@@ -43,7 +43,6 @@ export default function NotificationDropdown({
 }: NotificationDropdownProps) {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [isEvaluating, setIsEvaluating] = useState(false);
 
   const fetchNotifications = useCallback(async () => {
     try {
@@ -59,19 +58,6 @@ export default function NotificationDropdown({
     }
   }, [onUnreadCountChange]);
 
-  const handleEvaluate = async () => {
-    try {
-      setIsEvaluating(true);
-      const list = await notificationService.evaluateNotifications();
-      setNotifications(list);
-      const unread = list.filter((n) => !n.isRead).length;
-      onUnreadCountChange?.(unread);
-    } catch (err) {
-      console.error('Lỗi chạy thuật toán thông báo:', err);
-    } finally {
-      setIsEvaluating(false);
-    }
-  };
 
   const [shouldRender, setShouldRender] = useState(isOpen);
   const [isExiting, setIsExiting] = useState(false);
@@ -216,29 +202,6 @@ export default function NotificationDropdown({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {/* Quét phân tích thuật toán AI */}
-          <button
-            onClick={handleEvaluate}
-            disabled={isEvaluating}
-            title="Kích hoạt Thuật toán Phân tích Lịch trình & Deadline AI"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-              background: 'var(--primary-bg)',
-              border: '1px solid rgba(108, 92, 231, 0.25)',
-              fontSize: '0.74rem',
-              fontWeight: 600,
-              color: 'var(--primary)',
-              cursor: 'pointer',
-              padding: '3px 8px',
-              borderRadius: 6,
-              transition: 'all 0.15s ease',
-            }}
-          >
-            <RefreshCw size={12} style={{ animation: isEvaluating ? 'spin 1s linear infinite' : 'none' }} />
-            <span>{isEvaluating ? 'Đang quét...' : 'Quét AI'}</span>
-          </button>
 
           {unreadCount > 0 && (
             <button

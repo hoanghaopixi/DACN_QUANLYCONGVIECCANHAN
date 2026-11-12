@@ -508,13 +508,13 @@ export default function AIAssistantPanel({
   const isMini = (width ?? 300) < 195;
   const isWide = (width ?? 300) > 360;
 
-  // ── Render Collapsed Mode (Thanh hẹp 56px với animation mượt mà tương tự Sidebar trái) ──
-  if (isCollapsed) {
-    return (
-      <aside
-        className="ai-panel collapsed"
-        style={{ width: 56, minWidth: 56, maxWidth: 56 }}
-      >
+  // ── Render AI Panel (Single <aside> element with smooth CSS width transition) ──
+  return (
+    <aside
+      className={`ai-panel ${isCollapsed ? 'collapsed' : ''} ${!isCollapsed && isCompact ? 'compact-mode' : ''} ${!isCollapsed && isUltraCompact ? 'ultracompact-mode' : ''} ${!isCollapsed && isMini ? 'mini-mode' : ''} ${!isCollapsed && isWide ? 'wide-mode' : ''}`}
+      style={isCollapsed ? { width: 56, minWidth: 56, maxWidth: 56 } : { width: width || 300 }}
+    >
+      {isCollapsed ? (
         <div
           style={{
             display: 'flex',
@@ -524,6 +524,7 @@ export default function AIAssistantPanel({
             padding: '14px 6px',
             height: '100%',
             boxSizing: 'border-box',
+            animation: 'fadeIn 0.2s ease',
           }}
         >
           {/* Nút Mở rộng Trợ lý AI matching phong cách Sidebar */}
@@ -615,24 +616,8 @@ export default function AIAssistantPanel({
             <span>{allowedWorkspaceIds.length}</span>
           </button>
         </div>
-
-        {/* Modal Quyền Không gian khi click badge */}
-        <AiPrivacyModal
-          isOpen={showPrivacyModal}
-          onClose={() => setShowPrivacyModal(false)}
-          workspaces={workspaces}
-          activeWorkspace={activeWorkspace || null}
-          onShowToast={onShowToast}
-        />
-      </aside>
-    );
-  }
-
-  return (
-    <aside
-      className={`ai-panel ${isCompact ? 'compact-mode' : ''} ${isUltraCompact ? 'ultracompact-mode' : ''} ${isMini ? 'mini-mode' : ''} ${isWide ? 'wide-mode' : ''}`}
-      style={{ width: width || 300 }}
-    >
+      ) : (
+        <>
       {/* ── Header ── */}
       <div className="ai-header">
         <div className="ai-header-left" style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
@@ -2274,6 +2259,8 @@ export default function AIAssistantPanel({
           </button>
         </div>
       </div>
+        </>
+      )}
 
       {/* ── AI Workspace Privacy Permission Modal ── */}
       <AiPrivacyModal

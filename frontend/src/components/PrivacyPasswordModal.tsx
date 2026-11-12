@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Lock, Eye, EyeOff, X, CheckCircle2, Loader2, KeyRound } from 'lucide-react';
 import { authService } from '../services/authService';
 import { formatAuthErrorMessage, validatePassword } from '../utils/authValidation';
+import { useModalAnimation } from '../hooks/useModalAnimation';
 
 interface PrivacyPasswordModalProps {
   isOpen: boolean;
@@ -15,6 +16,7 @@ export default function PrivacyPasswordModal({
   onClose,
   onSuccess,
 }: PrivacyPasswordModalProps) {
+  const { shouldRender, isClosing } = useModalAnimation(isOpen, 200);
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,15 +37,15 @@ export default function PrivacyPasswordModal({
   }, [isOpen]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!shouldRender) return;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = prevOverflow;
     };
-  }, [isOpen]);
+  }, [shouldRender]);
 
-  if (!isOpen || typeof document === 'undefined') return null;
+  if (!shouldRender || typeof document === 'undefined') return null;
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -91,7 +93,8 @@ export default function PrivacyPasswordModal({
         alignItems: 'center',
         justifyContent: 'center',
         padding: '16px',
-        animation: 'privacyModalFadeIn 0.2s ease-out',
+        animation: isClosing ? 'privacyModalFadeOut 0.2s ease-in forwards' : 'privacyModalFadeIn 0.2s ease-out',
+        pointerEvents: isClosing ? 'none' : 'auto',
       }}
     >
       <div
@@ -107,7 +110,9 @@ export default function PrivacyPasswordModal({
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
-          animation: 'privacyModalScaleUp 0.22s cubic-bezier(0.16, 1.3, 0.3, 1)',
+          animation: isClosing
+            ? 'privacyModalScaleDown 0.2s cubic-bezier(0.4, 0, 1, 1) forwards'
+            : 'privacyModalScaleUp 0.22s cubic-bezier(0.16, 1.3, 0.3, 1)',
         }}
       >
         {/* Header */}

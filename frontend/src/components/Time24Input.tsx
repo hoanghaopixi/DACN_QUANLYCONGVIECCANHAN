@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Clock } from 'lucide-react';
+import { useModalAnimation } from '../hooks/useModalAnimation';
 
 interface Time24InputProps {
   value: string; // "HH:mm" (24h)
@@ -26,6 +27,7 @@ export default function Time24Input({
   className = '',
 }: Time24InputProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const { shouldRender, isClosing } = useModalAnimation(isOpen, 150);
   const [textValue, setTextValue] = useState(value || '09:00');
   const containerRef = useRef<HTMLDivElement>(null);
   const hoursColRef = useRef<HTMLDivElement>(null);
@@ -239,7 +241,7 @@ export default function Time24Input({
       </div>
 
       {/* 24-Hour Picker Dropdown Popover */}
-      {isOpen && !disabled && (
+      {shouldRender && !disabled && (
         <div
           className="time24-dropdown-popover"
           style={{
@@ -255,7 +257,10 @@ export default function Time24Input({
             zIndex: 999999,
             padding: 8,
             boxSizing: 'border-box',
-            animation: 'modalSlideUp 0.15s cubic-bezier(0.16, 1, 0.3, 1)',
+            animation: isClosing
+              ? 'modalSlideDown 0.15s cubic-bezier(0.4, 0, 1, 1) forwards'
+              : 'modalSlideUp 0.15s cubic-bezier(0.16, 1, 0.3, 1)',
+            pointerEvents: isClosing ? 'none' : 'auto',
           }}
         >
           <div

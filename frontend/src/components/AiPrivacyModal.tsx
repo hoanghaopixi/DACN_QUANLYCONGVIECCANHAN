@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Shield, ShieldAlert, ShieldCheck, X, Check, Lock, Home } from 'lucide-react';
 import { WorkspaceItem } from '../services/workspaceService';
 import { aiPrivacyService } from '../services/aiPrivacyService';
+import { useModalAnimation } from '../hooks/useModalAnimation';
 
 interface AiPrivacyModalProps {
   isOpen: boolean;
@@ -19,10 +20,11 @@ export default function AiPrivacyModal({
   activeWorkspace,
   onShowToast,
 }: AiPrivacyModalProps) {
+  const { shouldRender, isClosing } = useModalAnimation(isOpen, 220);
   const [allowedIds, setAllowedIds] = useState<number[]>([]);
 
   useEffect(() => {
-    if (isOpen) {
+    if (shouldRender) {
       const currentAllowed = aiPrivacyService.getAllowedWorkspaceIds(workspaces);
       setAllowedIds(currentAllowed);
       const prevOverflow = document.body.style.overflow;
@@ -31,9 +33,9 @@ export default function AiPrivacyModal({
         document.body.style.overflow = prevOverflow;
       };
     }
-  }, [isOpen, workspaces]);
+  }, [shouldRender, workspaces]);
 
-  if (!isOpen || typeof document === 'undefined') return null;
+  if (!shouldRender || typeof document === 'undefined') return null;
 
   const handleToggle = (wsId: number) => {
     const isNowAllowed = aiPrivacyService.toggleWorkspace(wsId, workspaces);
@@ -84,7 +86,8 @@ export default function AiPrivacyModal({
         alignItems: 'center',
         justifyContent: 'center',
         padding: '20px',
-        animation: 'fadeIn 0.2s ease-out',
+        animation: isClosing ? 'modalBackdropFadeOut 0.22s ease-in forwards' : 'modalBackdropFadeIn 0.22s ease-out',
+        pointerEvents: isClosing ? 'none' : 'auto',
         overflowY: 'auto',
       }}
       onClick={onClose}
@@ -103,7 +106,9 @@ export default function AiPrivacyModal({
           flexDirection: 'column',
           maxHeight: 'min(90vh, 660px)',
           margin: 'auto',
-          animation: 'modalSlideUp 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
+          animation: isClosing
+            ? 'modalSlideDown 0.22s cubic-bezier(0.4, 0, 1, 1) forwards'
+            : 'modalSlideUp 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
         }}
         onClick={(e) => e.stopPropagation()}
       >

@@ -99,8 +99,9 @@ data class AutoScheduleResponse(
 data class UserPreferenceDto(
     val id: Long? = null,
     val userId: Long? = null,
-    val fullName: String? = "Nguyễn Hoàng Hảo",
-    val phone: String? = "0901234567",
+    val fullName: String? = null,
+    val phone: String? = null,
+    val avatarUrl: String? = null,
     val language: String? = "Tiếng Việt",
     val workStartTime: String? = "08:00",
     val workEndTime: String? = "18:00",

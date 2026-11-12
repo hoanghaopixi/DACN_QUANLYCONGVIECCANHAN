@@ -24,6 +24,27 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
         // Map /uploads/** to the absolute directory on the server file system
         registry.addResourceHandler("/uploads/**")
-                .addResourceLocations(uploadUri);
+                .addResourceLocations(uploadUri)
+                .setCacheControl(org.springframework.http.CacheControl.maxAge(30, java.util.concurrent.TimeUnit.DAYS).cachePublic());
+    }
+
+    @org.springframework.context.annotation.Bean
+    public org.springframework.boot.web.servlet.FilterRegistrationBean<jakarta.servlet.Filter> inlineMediaFilter() {
+        org.springframework.boot.web.servlet.FilterRegistrationBean<jakarta.servlet.Filter> registration = new org.springframework.boot.web.servlet.FilterRegistrationBean<>();
+        registration.setFilter(new org.springframework.web.filter.OncePerRequestFilter() {
+            @Override
+            protected void doFilterInternal(jakarta.servlet.http.HttpServletRequest request,
+                                            jakarta.servlet.http.HttpServletResponse response,
+                                            jakarta.servlet.FilterChain filterChain)
+                    throws jakarta.servlet.ServletException, java.io.IOException {
+                response.setHeader("Content-Disposition", "inline");
+                response.setHeader("Accept-Ranges", "bytes");
+                filterChain.doFilter(request, response);
+            }
+        });
+        registration.addUrlPatterns("/uploads/*");
+        registration.setName("inlineMediaFilter");
+        registration.setOrder(1);
+        return registration;
     }
 }

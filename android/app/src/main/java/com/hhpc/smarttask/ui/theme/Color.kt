@@ -13,6 +13,7 @@ val LimeHighlight = Color(0xFFA3E635)
 val StatusRose = Color(0xFFE11D48)
 val StatusAmber = Color(0xFFD97706)
 val StatusCyan = Color(0xFF0284C7)
+val StatusPurple = Color(0xFF8B5CF6)
 
 // Backward Compatibility Aliases
 val NeonRose = StatusRose

@@ -6,7 +6,9 @@ import {
 } from 'lucide-react';
 import { Category } from '../types';
 import { workspaceService, WorkspaceItem } from '../services/workspaceService';
+import { formatApiErrorMessage } from '../utils/apiErrorHandler';
 import ConfirmModal from './ConfirmModal';
+import { useModalAnimation } from '../hooks/useModalAnimation';
 
 interface SidebarProps {
   categories: Category[];
@@ -70,6 +72,7 @@ export default function Sidebar({
   const [editingWsId, setEditingWsId] = useState<number | null>(null);
   const [editingWsText, setEditingWsText] = useState('');
   const [isAddingWs, setIsAddingWs] = useState(false);
+  const { shouldRender: shouldRenderWsForm, isClosing: isClosingWsForm } = useModalAnimation(isAddingWs, 180);
   const [newWsText, setNewWsText] = useState('');
 
   const profileMenuRef = useRef<HTMLDivElement>(null);
@@ -214,7 +217,7 @@ export default function Sidebar({
         setDeleteTarget(null);
       } catch (err: any) {
         console.error('Lỗi khi xóa không gian:', err);
-        const msg = err.response?.data?.message || 'Lỗi khi xóa không gian làm việc khỏi CSDL';
+        const msg = formatApiErrorMessage(err, 'Lỗi khi xóa không gian làm việc.');
         setDeleteError(msg);
         onShowToast?.(`⚠️ ${msg}`);
       } finally {
@@ -227,7 +230,7 @@ export default function Sidebar({
         setDeleteTarget(null);
       } catch (err: any) {
         console.error('Lỗi khi xóa nhóm:', err);
-        const msg = err.response?.data?.message || 'Không thể xóa nhóm này vì đang có công việc đang sử dụng!';
+        const msg = formatApiErrorMessage(err, 'Không thể xóa nhóm này vì đang có công việc đang sử dụng!');
         setDeleteError(msg);
       } finally {
         setIsDeleting(false);
@@ -518,7 +521,7 @@ export default function Sidebar({
             </div>
 
             {/* Inline Add Workspace form */}
-            {isAddingWs && (
+            {shouldRenderWsForm && (
               <form
                 onSubmit={handleCreateWs}
                 style={{
@@ -529,7 +532,10 @@ export default function Sidebar({
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 6,
-                  animation: 'slideDownSmooth 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                  animation: isClosingWsForm
+                    ? 'slideUpSmooth 0.18s cubic-bezier(0.4, 0, 1, 1) forwards'
+                    : 'slideDownSmooth 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                  pointerEvents: isClosingWsForm ? 'none' : 'auto',
                 }}
               >
                 <input

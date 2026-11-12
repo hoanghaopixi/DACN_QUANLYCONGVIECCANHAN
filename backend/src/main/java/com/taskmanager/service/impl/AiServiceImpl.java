@@ -490,10 +490,6 @@ public class AiServiceImpl implements AiService {
         return result.isEmpty() ? List.of(text) : result;
     }
 
-    private AiParseTaskResponse parseSingleHeuristic(String prompt, OffsetDateTime refDateTime) {
-        return parseSingleHeuristic(prompt, refDateTime, null);
-    }
-
     private AiParseTaskResponse parseSingleHeuristic(String prompt, OffsetDateTime refDateTime, OffsetDateTime inheritedTargetDate) {
         String normalized = prompt;
         // Chuẩn hóa từ số nói "một" -> "1"
@@ -583,7 +579,6 @@ public class AiServiceImpl implements AiService {
 
         // 3. Ngày tháng (Date & Day of Week)
         OffsetDateTime targetDate = inheritedTargetDate != null ? inheritedTargetDate : refDateTime;
-        boolean hasExplicitDate = false;
 
         // Bóc tách thứ trong tuần: thứ 2 -> thứ 7, chủ nhật / cn
         Integer targetDayOfWeek = null; // 1 = Monday, ..., 7 = Sunday
@@ -613,7 +608,6 @@ public class AiServiceImpl implements AiService {
             int y = exactDateMatcher.group(3) != null ? Integer.parseInt(exactDateMatcher.group(3)) : refDateTime.getYear();
             try {
                 targetDate = targetDate.withYear(y).withMonth(m).withDayOfMonth(d);
-                hasExplicitDate = true;
             } catch (Exception ignored) {}
         } else if (targetDayOfWeek != null) {
             int currentDow = refDateTime.getDayOfWeek().getValue(); // 1 = Monday, ..., 7 = Sunday
@@ -626,23 +620,17 @@ public class AiServiceImpl implements AiService {
                 dayDiff += 7;
             }
             targetDate = refDateTime.plusDays(dayDiff);
-            hasExplicitDate = true;
         } else if (lower.contains("ngày hôm sau") || lower.contains("hôm sau")) {
             targetDate = refDateTime.plusDays(1);
-            hasExplicitDate = true;
         } else if (lower.contains("ngày mai") || lower.contains("chiều mai") || lower.contains("sáng mai")
                 || lower.contains("tối mai") || Pattern.compile("\\bmai\\b").matcher(lower).find()) {
             targetDate = refDateTime.plusDays(1);
-            hasExplicitDate = true;
         } else if (lower.contains("ngày mốt") || lower.contains("hôm kia")) {
             targetDate = refDateTime.plusDays(2);
-            hasExplicitDate = true;
         } else if (lower.contains("tuần sau")) {
             targetDate = refDateTime.plusDays(7);
-            hasExplicitDate = true;
         } else if (lower.contains("hôm nay") || lower.contains("sáng nay") || lower.contains("chiều nay") || lower.contains("tối nay")) {
             targetDate = refDateTime;
-            hasExplicitDate = true;
         }
 
         // 4. Giờ giấc & Khoảng thời gian (Start Hour, End Hour, Duration)

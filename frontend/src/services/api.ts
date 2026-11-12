@@ -27,7 +27,7 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     const url = String(error?.config?.url || '');
-    const isCredentialForm = ['/auth/login', '/auth/register', '/auth/verify-password', '/auth/change-password']
+    const isCredentialForm = ['/auth/login', '/auth/register', '/auth/google', '/auth/verify-password', '/auth/change-password']
       .some((path) => url.includes(path));
     if (error?.response?.status === 401 && !isCredentialForm) {
       window.dispatchEvent(new Event('smarttask:session-expired'));

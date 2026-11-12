@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Tag, Trash2, AlertTriangle } from 'lucide-react';
 import { Category } from '../types';
+import { formatApiErrorMessage } from '../utils/apiErrorHandler';
+import { useModalAnimation } from '../hooks/useModalAnimation';
 
 interface CategoryModalProps {
   isOpen: boolean;
@@ -29,6 +31,7 @@ export default function CategoryModal({
   onDelete,
   category,
 }: CategoryModalProps) {
+  const { shouldRender, isClosing } = useModalAnimation(isOpen, 200);
   const [name, setName] = useState('');
   const [colorCode, setColorCode] = useState('#6C5CE7');
   const [loading, setLoading] = useState(false);
@@ -49,15 +52,15 @@ export default function CategoryModal({
   }, [category, isOpen]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!shouldRender) return;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = prevOverflow;
     };
-  }, [isOpen]);
+  }, [shouldRender]);
 
-  if (!isOpen || typeof document === 'undefined') return null;
+  if (!shouldRender || typeof document === 'undefined') return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,7 +86,7 @@ export default function CategoryModal({
       await onDelete(category.id);
       onClose();
     } catch (err: any) {
-      const msg = err.response?.data?.message || 'Không thể xóa nhóm này vì đang có công việc đang sử dụng!';
+      const msg = formatApiErrorMessage(err, 'Không thể xóa nhóm này vì đang có công việc đang sử dụng!');
       setDeleteError(msg);
     } finally {
       setLoading(false);
@@ -102,6 +105,8 @@ export default function CategoryModal({
         justifyContent: 'center',
         zIndex: 2000,
         padding: 16,
+        animation: isClosing ? 'modalBackdropFadeOut 0.2s ease-in forwards' : 'modalBackdropFadeIn 0.2s ease-out',
+        pointerEvents: isClosing ? 'none' : 'auto',
       }}
       onClick={onClose}
     >
@@ -114,7 +119,9 @@ export default function CategoryModal({
           boxShadow: 'var(--shadow-lg), 0 25px 50px -12px rgba(0,0,0,0.25)',
           border: '1px solid var(--border)',
           overflow: 'hidden',
-          animation: 'slideUpToast 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+          animation: isClosing
+            ? 'slideDownToast 0.2s cubic-bezier(0.4, 0, 1, 1) forwards'
+            : 'slideUpToast 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
         }}
         onClick={(e) => e.stopPropagation()}
       >

@@ -30,7 +30,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hhpc.smarttask.data.model.AiParseTaskResponse
-import com.hhpc.smarttask.data.model.AutoScheduleResponse
 import com.hhpc.smarttask.data.repository.TaskRepository
 import com.hhpc.smarttask.ui.theme.*
 import kotlinx.coroutines.launch
@@ -51,10 +50,8 @@ fun AiAssistantScreen(
     var inputPrompt by remember { mutableStateOf("") }
     var autoAddWithoutConfirm by remember { mutableStateOf(true) }
     var isLoading by remember { mutableStateOf(false) }
-    var isScheduling by remember { mutableStateOf(false) }
 
     var parseResult by remember { mutableStateOf<AiParseTaskResponse?>(null) }
-    var scheduleResult by remember { mutableStateOf<AutoScheduleResponse?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     // Voice Input Launcher
@@ -85,13 +82,16 @@ fun AiAssistantScreen(
             )
             result.onSuccess { res ->
                 parseResult = res
-                if (autoAddWithoutConfirm && res.isValidTask == true && !res.title.isNullOrBlank()) {
-                    taskViewModel.createTask(
-                        title = res.title!!,
-                        description = res.description ?: res.note,
-                        priority = res.priority ?: "MEDIUM",
-                        quadrant = res.eisenhowerQuadrant ?: "SCHEDULE"
-                    )
+                if (autoAddWithoutConfirm && res.isValidTask == true) {
+                    val tasksToCreate = if (!res.tasks.isNullOrEmpty()) res.tasks else if (!res.title.isNullOrBlank()) listOf(res) else emptyList()
+                    tasksToCreate.forEach { t ->
+                        taskViewModel.createTask(
+                            title = t.title ?: promptText,
+                            description = t.description ?: t.note,
+                            priority = t.priority ?: "MEDIUM",
+                            quadrant = t.eisenhowerQuadrant ?: "SCHEDULE"
+                        )
+                    }
                 }
             }.onFailure { e ->
                 errorMessage = e.message ?: "Không thể kết nối đến Trợ lý AI."
@@ -120,20 +120,20 @@ fun AiAssistantScreen(
                 .verticalScroll(scrollState)
                 .padding(bottom = 90.dp)
         ) {
-            // Clean Header without leading icon and without redundant subtitle text
+            // Title Bar
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(top = 12.dp, bottom = 12.dp)
             ) {
                 Text(
-                    text = "Trợ lý AI Gemini",
+                    text = "Trợ lý AI",
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     color = appColors.textPrimary
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             // Auto Add Switch Row
             Row(
@@ -169,115 +169,9 @@ fun AiAssistantScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // AI Smart Auto-Reschedule Engine Button Card
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(
-                        brush = Brush.horizontalGradient(
-                            colors = listOf(
-                                appColors.glassCardBg,
-                                appColors.glassCardBg.copy(alpha = 0.8f)
-                            )
-                        )
-                    )
-                    .border(1.5.dp, appColors.glassBorderActive, RoundedCornerShape(20.dp))
-                    .padding(16.dp)
-            ) {
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.ElectricBolt, contentDescription = null, tint = LimeHighlight, modifier = Modifier.size(24.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Động cơ lập lịch tự động (Auto-Scheduler)",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = appColors.textPrimary
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Phân tích khoảng thời gian trống và tự động xếp lịch công việc quan trọng vào khung giờ vàng.",
-                        fontSize = 12.sp,
-                        color = appColors.textSecondary
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Button(
-                        onClick = {
-                            scope.launch {
-                                isScheduling = true
-                                errorMessage = null
-                                val result = taskRepository.autoSchedule(
-                                    workspaceId = taskViewModel.selectedWorkspaceId.value,
-                                    applyImmediately = true
-                                )
-                                result.onSuccess { res ->
-                                    scheduleResult = res
-                                    taskViewModel.loadTasks()
-                                    taskViewModel.loadEisenhower()
-                                }.onFailure { e ->
-                                    errorMessage = e.message ?: "Lỗi tự động lập lịch"
-                                }
-                                isScheduling = false
-                            }
-                        },
-                        enabled = !isScheduling,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = EmeraldPrimary,
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        if (isScheduling) {
-                            CircularProgressIndicator(
-                                color = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        } else {
-                            Text(text = "Tối ưu & Tự động lập lịch ngay", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    if (scheduleResult != null) {
-                        val sched = scheduleResult!!
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(appColors.glassSurface)
-                                .padding(10.dp)
-                        ) {
-                            Column {
-                                Text(
-                                    text = sched.aiStrategySummary ?: "Đã tự động xếp lịch thành công!",
-                                    color = EmeraldPrimary,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                if (!sched.proposals.isNullOrEmpty()) {
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    sched.proposals.take(3).forEach { prop ->
-                                        Text(
-                                            text = "• ${prop.title ?: "Công việc"}: ${prop.slotRationale ?: "Đã xếp vào khung giờ phù hợp"}",
-                                            fontSize = 11.sp,
-                                            color = appColors.textPrimary
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Natural Language Parsing Input Card
+            // Input Prompt Card
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -301,7 +195,7 @@ fun AiAssistantScreen(
                         onValueChange = { inputPrompt = it },
                         placeholder = {
                             Text(
-                                text = "Nhập công việc...",
+                                text = "Ví dụ: Ăn đám cưới lúc 10h, 15h đi họp công ty 2 tiếng...",
                                 color = appColors.textSecondary.copy(alpha = 0.9f),
                                 fontSize = 13.sp
                             )
@@ -326,7 +220,6 @@ fun AiAssistantScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // Voice Recognition Mic Button
                         IconButton(
                             onClick = {
                                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -353,7 +246,6 @@ fun AiAssistantScreen(
                             )
                         }
 
-                        // Submit AI Parsing Button
                         Button(
                             onClick = { submitAiPrompt(inputPrompt) },
                             enabled = !isLoading,
@@ -385,7 +277,7 @@ fun AiAssistantScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Prompt Suggestions Section
+            // Suggestions
             Text(
                 text = "Bạn cũng có thể thử:",
                 fontSize = 14.sp,
@@ -395,9 +287,9 @@ fun AiAssistantScreen(
             )
 
             val suggestions = listOf(
+                "💒 Ăn đám cưới lúc 10h, 15h đi họp công ty 2 tiếng",
                 "📖 Sắp xếp 2 tiếng đọc sách sáng mai 8h",
-                "🏃 Nhắc chạy bộ 45 phút vào 6h sáng thứ 2",
-                "🇬🇧 Lịch Tiếng Anh 1h đến 2h30 chiều"
+                "🏃 Nhắc chạy bộ 45 phút vào 6h sáng thứ 2"
             )
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -439,7 +331,6 @@ fun AiAssistantScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Error Message
             if (errorMessage != null) {
                 Text(
                     text = errorMessage!!,
@@ -449,12 +340,11 @@ fun AiAssistantScreen(
                 )
             }
 
-            // AI Result Handling (Chat / Greeting vs Valid Task)
+            // Results Display (Supports Single Task or Multiple Parsed Tasks in `res.tasks`)
             if (parseResult != null) {
                 val res = parseResult!!
 
-                // CASE A: Conversational Chat / Greeting / Invalid Task Message
-                if (res.isValidTask == false || !res.validationMessage.isNullOrBlank() || res.title.isNullOrBlank()) {
+                if (res.isValidTask == false || (!res.validationMessage.isNullOrBlank() && res.title.isNullOrBlank() && res.tasks.isNullOrEmpty())) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -490,7 +380,7 @@ fun AiAssistantScreen(
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = res.validationMessage ?: "Xin chào! Tôi là Trợ lý AI Gemini. Tôi có thể giúp bạn bóc tách công việc từ câu nói tự nhiên và tự động phân bổ lịch trình thông minh. Hãy thử bấm Micro và nói hoặc gõ câu lệnh như 'Chiều mai 3h họp nhóm 45 phút'.",
+                                    text = res.validationMessage ?: "Xin chào! Tôi là Trợ lý AI Gemini. Tôi có thể giúp bạn bóc tách công việc từ câu nói tự nhiên và tự động phân bổ lịch trình thông minh.",
                                     fontSize = 13.sp,
                                     color = appColors.textPrimary,
                                     lineHeight = 18.sp
@@ -499,90 +389,113 @@ fun AiAssistantScreen(
                         }
                     }
                 } else {
-                    // CASE B: Valid Parsed Task
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(EmeraldPrimary.copy(alpha = 0.1f))
-                            .border(1.dp, appColors.glassBorderActive, RoundedCornerShape(20.dp))
-                            .padding(16.dp)
-                    ) {
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = EmeraldPrimary, modifier = Modifier.size(20.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Kết quả bóc tách từ Gemini AI:",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = EmeraldPrimary
-                                )
-                            }
+                    val taskListToDisplay = if (!res.tasks.isNullOrEmpty()) res.tasks!! else listOf(res)
 
-                            Spacer(modifier = Modifier.height(10.dp))
-
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = EmeraldPrimary, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "📌 Tiêu đề: ${res.title}",
-                                fontSize = 15.sp,
-                                color = appColors.textPrimary,
-                                fontWeight = FontWeight.Bold
+                                text = "Đã bóc tách ${taskListToDisplay.size} công việc từ Trợ lý AI:",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = EmeraldPrimary
                             )
+                        }
 
-                            if (!res.formattedDateLabel.isNullOrBlank()) {
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "📅 Thời gian: ${res.formattedDateLabel}",
-                                    fontSize = 13.sp,
-                                    color = appColors.textSecondary
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "⏱️ Thời lượng ước tính: ${res.estimatedDurationMinutes ?: 30} phút",
-                                fontSize = 13.sp,
-                                color = appColors.textSecondary
-                            )
-
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "🎯 Mức độ ưu tiên: ${res.priority ?: "MEDIUM"}",
-                                fontSize = 13.sp,
-                                color = appColors.textSecondary
-                            )
-
-                            if (res.hasConflict == true && !res.conflictMessage.isNullOrBlank()) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Warning, contentDescription = null, tint = NeonAmber, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
+                        taskListToDisplay.forEachIndexed { idx, taskItem ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(EmeraldPrimary.copy(alpha = 0.1f))
+                                    .border(1.dp, appColors.glassBorderActive, RoundedCornerShape(20.dp))
+                                    .padding(16.dp)
+                            ) {
+                                Column {
                                     Text(
-                                        text = "Xung đột: ${res.conflictMessage}",
-                                        fontSize = 12.sp,
-                                        color = NeonAmber
+                                        text = "📌 Công việc ${idx + 1}: ${taskItem.title}",
+                                        fontSize = 15.sp,
+                                        color = appColors.textPrimary,
+                                        fontWeight = FontWeight.Bold
                                     )
+
+                                    if (!taskItem.formattedDateLabel.isNullOrBlank()) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "📅 Thời gian: ${taskItem.formattedDateLabel}",
+                                            fontSize = 13.sp,
+                                            color = appColors.textSecondary
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "⏱️ Thời lượng: ${taskItem.estimatedDurationMinutes ?: 60} phút",
+                                        fontSize = 13.sp,
+                                        color = appColors.textSecondary
+                                    )
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "🎯 Ưu tiên: ${taskItem.priority ?: "MEDIUM"}",
+                                        fontSize = 13.sp,
+                                        color = appColors.textSecondary
+                                    )
+
+                                    if (taskItem.hasConflict == true && !taskItem.conflictMessage.isNullOrBlank()) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Warning, contentDescription = null, tint = NeonAmber, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "Xung đột: ${taskItem.conflictMessage}",
+                                                fontSize = 12.sp,
+                                                color = NeonAmber
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    Button(
+                                        onClick = {
+                                            taskViewModel.createTask(
+                                                title = taskItem.title ?: inputPrompt,
+                                                description = taskItem.description ?: taskItem.note,
+                                                priority = taskItem.priority ?: "MEDIUM",
+                                                quadrant = taskItem.eisenhowerQuadrant ?: "SCHEDULE"
+                                            )
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(text = "Thêm công việc này vào lịch", color = Color.White, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
+                        }
 
-                            Spacer(modifier = Modifier.height(14.dp))
-
+                        if (taskListToDisplay.size > 1) {
                             Button(
                                 onClick = {
-                                    taskViewModel.createTask(
-                                        title = res.title ?: inputPrompt,
-                                        description = res.description ?: res.note,
-                                        priority = res.priority ?: "MEDIUM",
-                                        quadrant = res.eisenhowerQuadrant ?: "SCHEDULE"
-                                    )
+                                    taskListToDisplay.forEach { t ->
+                                        taskViewModel.createTask(
+                                            title = t.title ?: inputPrompt,
+                                            description = t.description ?: t.note,
+                                            priority = t.priority ?: "MEDIUM",
+                                            quadrant = t.eisenhowerQuadrant ?: "SCHEDULE"
+                                        )
+                                    }
                                     parseResult = null
                                     inputPrompt = ""
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
+                                colors = ButtonDefaults.buttonColors(containerColor = MintAccent),
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth().height(48.dp)
                             ) {
-                                Text(text = "Thêm trực tiếp vào danh sách công việc", color = Color.White, fontWeight = FontWeight.Bold)
+                                Text(text = "Thêm Tất Cả ${taskListToDisplay.size} Công Việc Này", color = Color.White, fontWeight = FontWeight.Bold)
                             }
                         }
                     }

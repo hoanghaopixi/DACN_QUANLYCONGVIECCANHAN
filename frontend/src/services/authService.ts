@@ -7,6 +7,8 @@ export interface AuthResponse {
   role: string;
   avatarUrl?: string;
   phone?: string;
+  authProvider?: string;
+  hasPassword?: boolean;
 }
 
 export interface LoginPayload {
@@ -18,6 +20,17 @@ export interface RegisterPayload {
   fullName: string;
   email: string;
   password: string;
+  otp?: string;
+}
+
+export interface SendRegisterOtpPayload {
+  fullName: string;
+  email: string;
+}
+
+export interface SetPasswordPayload {
+  username: string;
+  newPassword: string;
 }
 
 export interface ChangePasswordPayload {
@@ -31,12 +44,46 @@ export interface UpdateProfilePayload {
   avatarUrl?: string;
 }
 
+export interface ForgotPasswordPayload {
+  email: string;
+}
+
+export interface VerifyOtpPayload {
+  email: string;
+  otp: string;
+}
+
+export interface ResetPasswordPayload {
+  email: string;
+  otp: string;
+  newPassword: string;
+}
+
+export interface GoogleLoginPayload {
+  idToken?: string;
+  email: string;
+  fullName?: string;
+  avatarUrl?: string;
+}
+
+export interface OtpResponse {
+  success: boolean;
+  message: string;
+  email?: string;
+  expiresInSeconds?: number;
+}
+
 export const authService = {
   async login(payload: LoginPayload): Promise<AuthResponse> {
     const response = await api.post<AuthResponse>('/auth/login', payload);
     const data = response.data;
     localStorage.setItem('smarttask_current_user', JSON.stringify(data));
     return data;
+  },
+
+  async sendRegisterOtp(payload: SendRegisterOtpPayload): Promise<OtpResponse> {
+    const response = await api.post<OtpResponse>('/auth/register/send-otp', payload);
+    return response.data;
   },
 
   async register(payload: RegisterPayload): Promise<AuthResponse> {
@@ -46,9 +93,40 @@ export const authService = {
     return data;
   },
 
+  async loginWithGoogle(payload: GoogleLoginPayload): Promise<AuthResponse> {
+    const response = await api.post<AuthResponse>('/auth/google', payload);
+    const data = response.data;
+    localStorage.setItem('smarttask_current_user', JSON.stringify(data));
+    return data;
+  },
+
+  async forgotPassword(email: string): Promise<OtpResponse> {
+    const response = await api.post<OtpResponse>('/auth/forgot-password', { email });
+    return response.data;
+  },
+
+  async verifyOtp(payload: VerifyOtpPayload): Promise<OtpResponse> {
+    const response = await api.post<OtpResponse>('/auth/verify-otp', payload);
+    return response.data;
+  },
+
+  async resetPassword(payload: ResetPasswordPayload): Promise<OtpResponse> {
+    const response = await api.post<OtpResponse>('/auth/reset-password', payload);
+    return response.data;
+  },
+
   async changePassword(payload: ChangePasswordPayload): Promise<{ success: boolean; message: string }> {
     const response = await api.post<{ success: boolean; message: string }>('/auth/change-password', payload);
     return response.data;
+  },
+
+  async setPassword(payload: SetPasswordPayload): Promise<AuthResponse> {
+    const response = await api.post<AuthResponse>('/auth/set-password', payload);
+    const data = response.data;
+    const current = authService.getCurrentUser();
+    const merged = { ...current, ...data };
+    localStorage.setItem('smarttask_current_user', JSON.stringify(merged));
+    return merged;
   },
 
   async verifyPassword(password: string): Promise<{ success: boolean; message: string }> {

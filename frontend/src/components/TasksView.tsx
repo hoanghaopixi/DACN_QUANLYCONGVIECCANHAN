@@ -202,14 +202,44 @@ export default function TasksView({
     return found || { name: 'Công việc', colorCode: '#8B5CF6' };
   };
 
-  const formatDateTimeRange = (startStr: string, endStr: string) => {
+  const formatDateTimeDetails = (startStr?: string, endStr?: string) => {
+    if (!startStr) {
+      return {
+        dateText: 'Chưa đặt lịch',
+        timeText: '',
+        fullText: 'Chưa đặt lịch',
+      };
+    }
     const s = new Date(startStr);
-    const e = new Date(endStr);
+    if (isNaN(s.getTime())) {
+      return {
+        dateText: 'Chưa đặt lịch',
+        timeText: '',
+        fullText: 'Chưa đặt lịch',
+      };
+    }
     const dayNames = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
     const dayName = dayNames[s.getDay()];
     const dateFormatted = formatDateDDMMYYYY(s);
-    const timeFormatted = `${s.getHours().toString().padStart(2, '0')}:${s.getMinutes().toString().padStart(2, '0')} – ${e.getHours().toString().padStart(2, '0')}:${e.getMinutes().toString().padStart(2, '0')}`;
-    return `${dayName}, ${dateFormatted} · ${timeFormatted}`;
+    const dateText = `${dayName}, ${dateFormatted}`;
+
+    let timeText = '';
+    if (endStr) {
+      const e = new Date(endStr);
+      if (!isNaN(e.getTime())) {
+        timeText = `${s.getHours().toString().padStart(2, '0')}:${s.getMinutes().toString().padStart(2, '0')} – ${e.getHours().toString().padStart(2, '0')}:${e.getMinutes().toString().padStart(2, '0')}`;
+      } else {
+        timeText = `${s.getHours().toString().padStart(2, '0')}:${s.getMinutes().toString().padStart(2, '0')}`;
+      }
+    } else {
+      timeText = `${s.getHours().toString().padStart(2, '0')}:${s.getMinutes().toString().padStart(2, '0')}`;
+    }
+
+    return {
+      dateText,
+      timeText,
+      fullText: timeText ? `${dateText} · ${timeText}` : dateText,
+    };
   };
 
   return (
@@ -427,7 +457,7 @@ export default function TasksView({
             textAlign: 'center',
           }}
         >
-          <div style={{ fontSize: '0.68rem', color: '#EF4444', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>ĐÃ QUA</div>
+          <div style={{ fontSize: '0.68rem', color: '#EF4444', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>QUÁ HẠN</div>
           <div style={{ fontSize: '1.35rem', fontWeight: 800, color: '#EF4444', marginTop: 2, lineHeight: 1.1 }}>
             {pastCount}
           </div>
@@ -451,7 +481,7 @@ export default function TasksView({
             textAlign: 'center',
           }}
         >
-          <div style={{ fontSize: '0.64rem', letterSpacing: '-0.2px', color: '#10B981', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }} title="ĐÃ ĐÁNH DẤU HOÀN THÀNH">ĐÃ ĐÁNH DẤU HOÀN THÀNH</div>
+          <div style={{ fontSize: '0.68rem', color: '#10B981', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }} title="ĐÃ ĐÁNH DẤU HOÀN THÀNH">HOÀN THÀNH</div>
           <div style={{ fontSize: '1.35rem', fontWeight: 800, color: '#10B981', marginTop: 2, lineHeight: 1.1 }}>
             {completedCount}
           </div>
@@ -572,12 +602,12 @@ export default function TasksView({
           <div className="task-list-header" role="row">
             <span aria-hidden="true" />
             <span role="columnheader">Công việc</span>
-            <span role="columnheader">Thời gian</span>
-            <span role="columnheader">Nhóm</span>
-            <span role="columnheader">Ưu tiên</span>
-            <span role="columnheader">Ma trận</span>
-            <span role="columnheader">Trạng thái</span>
-            <span aria-hidden="true" />
+            <span role="columnheader" className="col-center">Thời gian</span>
+            <span role="columnheader" className="col-center">Nhóm</span>
+            <span role="columnheader" className="col-center">Ưu tiên</span>
+            <span role="columnheader" className="col-center">Ma trận</span>
+            <span role="columnheader" className="col-center">Trạng thái</span>
+            <span role="columnheader" className="col-center">Thao tác</span>
           </div>
           {sortedTasks.map((task, index) => {
             const cat = getCategoryMeta(task.categoryType);
@@ -630,10 +660,22 @@ export default function TasksView({
                     )}
                   </div>
 
-                  <div className="task-list-date-cell" title={formatDateTimeRange(task.startTime, task.endTime)}>
-                    <Clock size={13} />
-                    <span>{formatDateTimeRange(task.startTime, task.endTime)}</span>
-                  </div>
+                  {(() => {
+                    const dt = formatDateTimeDetails(task.startTime, task.endTime);
+                    return (
+                      <div className="task-list-date-cell" title={dt.fullText}>
+                        <div className="task-list-date-main">
+                          <span className="task-list-date-day">{dt.dateText}</span>
+                          {dt.timeText ? (
+                            <span className="task-list-date-time">
+                              <Clock size={11} />
+                              <span>{dt.timeText}</span>
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   <div className="task-list-data-cell">
                     <span className="task-list-pill" style={{ background: `${cat.colorCode}18`, color: cat.colorCode }} title={cat.name}>
@@ -672,9 +714,9 @@ export default function TasksView({
                     title="Chỉnh sửa công việc"
                     aria-label="Chỉnh sửa công việc"
                     style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: 8,
+                      width: 28,
+                      height: 28,
+                      borderRadius: 7,
                       border: '1px solid var(--border)',
                       background: 'var(--surface)',
                       color: 'var(--text-2)',
@@ -685,7 +727,7 @@ export default function TasksView({
                       transition: 'all 0.15s',
                     }}
                   >
-                    <Edit3 size={15} />
+                    <Edit3 size={14} />
                   </button>
 
                   <button
@@ -693,9 +735,9 @@ export default function TasksView({
                     title="Xóa công việc"
                     aria-label="Xóa công việc"
                     style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: 8,
+                      width: 28,
+                      height: 28,
+                      borderRadius: 7,
                       border: '1px solid var(--border)',
                       background: 'var(--surface)',
                       color: '#EF4444',
@@ -706,7 +748,7 @@ export default function TasksView({
                       transition: 'all 0.15s',
                     }}
                   >
-                    <Trash2 size={15} />
+                    <Trash2 size={14} />
                   </button>
                 </div>
               </div>

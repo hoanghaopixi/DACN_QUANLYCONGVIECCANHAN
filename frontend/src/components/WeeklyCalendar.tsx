@@ -6,6 +6,7 @@ import { taskService } from '../services/taskService';
 import PrivacyCalloutTooltip from './PrivacyCalloutTooltip';
 import PrivacyCalloutPopover from './PrivacyCalloutPopover';
 import EyeLockIcon from './EyeLockIcon';
+import { formatApiErrorMessage } from '../utils/apiErrorHandler';
 
 interface WeeklyCalendarProps {
   timeBlocks: (TimeBlock & { isRecurring?: boolean; subtext?: string; colorOverride?: string })[];
@@ -202,7 +203,7 @@ export default function WeeklyCalendar({
       setHoveredBlockId((curr) => (curr === blockId ? null : curr));
       setHoveredBlockRect(null);
       hoverLeaveTimerRef.current = null;
-    }, 120);
+    }, 180);
   };
 
   useEffect(() => {
@@ -211,14 +212,20 @@ export default function WeeklyCalendar({
     };
   }, []);
 
+  const lastScrollTopRef = useRef<number>(0);
+
   useEffect(() => {
     const scrollEl = scrollRef.current;
     if (!scrollEl) return;
     const handleScroll = () => {
-      clearHoverLeaveTimer();
-      if (hoveredBlockId !== null) {
-        setHoveredBlockId(null);
-        setHoveredBlockRect(null);
+      const st = scrollEl.scrollTop;
+      if (Math.abs(st - lastScrollTopRef.current) > 12) {
+        clearHoverLeaveTimer();
+        if (hoveredBlockId !== null) {
+          setHoveredBlockId(null);
+          setHoveredBlockRect(null);
+        }
+        lastScrollTopRef.current = st;
       }
     };
     scrollEl.addEventListener('scroll', handleScroll, { passive: true });
@@ -242,7 +249,7 @@ export default function WeeklyCalendar({
       }
     } catch (err: any) {
       if (onShowToast) {
-        onShowToast('Lỗi khi cập nhật trạng thái khóa: ' + (err.message || ''));
+        onShowToast(formatApiErrorMessage(err, 'Lỗi khi cập nhật trạng thái khóa riêng tư!'));
       }
     }
   };
@@ -264,6 +271,27 @@ export default function WeeklyCalendar({
 
   // ── Quick Duplicate Popover (Bấm vào nút Nhân bản -> Hiện ngay bên cạnh thẻ lịch trình) ──
   const [duplicateBlockId, setDuplicateBlockId] = useState<number | null>(null);
+  const [isClosingDuplicate, setIsClosingDuplicate] = useState(false);
+  const duplicateClosingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const openDuplicatePopover = (id: number) => {
+    if (duplicateClosingTimer.current) {
+      clearTimeout(duplicateClosingTimer.current);
+      duplicateClosingTimer.current = null;
+    }
+    setIsClosingDuplicate(false);
+    setDuplicateBlockId(id);
+  };
+
+  const closeDuplicatePopover = () => {
+    if (!duplicateBlockId || isClosingDuplicate) return;
+    setIsClosingDuplicate(true);
+    duplicateClosingTimer.current = setTimeout(() => {
+      setDuplicateBlockId(null);
+      setIsClosingDuplicate(false);
+    }, 160);
+  };
+
   const [duplicateMode, setDuplicateMode] = useState<'days' | 'week' | 'day'>('days');
   const [customUnitsCount, setCustomUnitsCount] = useState<number>(1);
   const [selectedDaysOfWeek, setSelectedDaysOfWeek] = useState<number[]>([1, 3, 5]); // 1: T2, 3: T4, 5: T6
@@ -292,11 +320,11 @@ export default function WeeklyCalendar({
 
   // Close duplicate popover on outside click
   useEffect(() => {
-    if (!duplicateBlockId) return;
-    const handleDismiss = () => setDuplicateBlockId(null);
+    if (!duplicateBlockId || isClosingDuplicate) return;
+    const handleDismiss = () => closeDuplicatePopover();
     window.addEventListener('click', handleDismiss);
     return () => window.removeEventListener('click', handleDismiss);
-  }, [duplicateBlockId]);
+  }, [duplicateBlockId, isClosingDuplicate]);
 
   // ── Action Handlers: Delete, Complete, Duplicate ──
   const handleDeleteBlock = async (e: React.MouseEvent, block: any) => {
@@ -350,10 +378,10 @@ export default function WeeklyCalendar({
     e.stopPropagation();
     e.preventDefault();
     if (duplicateBlockId === block.id) {
-      setDuplicateBlockId(null);
+      closeDuplicatePopover();
       return;
     }
-    setDuplicateBlockId(block.id);
+    openDuplicatePopover(block.id);
     setDuplicateMode('days'); // Mặc định mở tab "Theo Thứ" (cấu hình Thứ riêng biệt theo yêu cầu)
     setCustomUnitsCount(1);
     setDuplicateTargetScope('next_week');
@@ -960,94 +988,111 @@ export default function WeeklyCalendar({
                     const colWidthPercent = 100 / totalCols;
                     const leftPercent = colIndex * colWidthPercent;
 
-                    // Tính toán độ scale linh động, vừa khít nội dung khi hover (đảm bảo không bao giờ tràn mép ở mọi góc)
-                    let calculatedTop = top;
+                    // Kích thước tối ưu cho thẻ hover: 215px đảm bảo hiển thị trọn vẹn tiêu đề, ghi chú và thanh 3 nút thao tác
+                    const hoverCardWidth = 215;
+                    const ESTIMATED_HOVER_HEIGHT = 152;
+
+                    const isScheduleUnlocked = isPrivacyUnlocked || Boolean(unlockedScheduleIds && unlockedScheduleIds.has(block.id));
+                    const isLockedSchedule = Boolean(block.isLocked && !isScheduleUnlocked);
+
+                    // Phân loại vị trí cột để xử lý hướng bung nở hover:
+                    // 1. Cột sát biên trái lịch (Thứ Hai / Day 0 khi ở cột đầu tiên): neo trái, bung sang phải
+                    const isFarLeftEdge = DAYS.length > 1 ? (dayIndex === 0 && colIndex === 0) : (totalCols > 1 && colIndex === 0);
+                    // 2. Cột sát biên phải lịch (Chủ Nhật / Day cuối khi ở cột cuối cùng): neo phải, bung sang trái
+                    const isFarRightEdge = DAYS.length > 1 ? (dayIndex === DAYS.length - 1 && colIndex === totalCols - 1) : (totalCols > 1 && colIndex === totalCols - 1);
+                    // 3. Các lịch trình NẰM PHÍA BÊN TRONG CALENDAR:
+                    // (Thứ Ba, Thứ Tư, Thứ Năm, Thứ Sáu, Thứ Bảy trong tuần, hoặc cột giữa trong ngày)
+                    // CĂN GIỮA (CENTERED) hoàn hảo theo đúng yêu cầu người dùng, bung nở cân đối 2 phía!
+                    const isInnerCol = !isFarLeftEdge && !isFarRightEdge && (DAYS.length > 1 || totalCols > 1);
+
+                    // Chỉ neo cạnh đáy (để nở ngược lên trên) khi task thực sự quá sát đáy 1440px và nở xuống dưới sẽ tràn qua footer!
+                    const wouldOverflowBottom = top + ESTIMATED_HOVER_HEIGHT > TOTAL_GRID_HEIGHT - 6;
+                    const isNearBottom = wouldOverflowBottom;
+
+                    let calculatedTop: number | undefined = top;
                     let calculatedBottom: string | undefined = undefined;
                     let calculatedLeft: string | undefined = '3px';
                     let calculatedRight: string | undefined = 'auto';
                     let calculatedWidth = 'calc(100% - 6px)';
-                    // CHỈ card ở cột cuối cùng sát mép phải (Chủ Nhật hoặc cột ngoài cùng bên phải) mới hiển thị lệch vào
-                    const isRightmostEdge = DAYS.length > 1 && dayIndex === DAYS.length - 1;
-                    const hoverCardWidth = 236;
-
-                    const isScheduleUnlocked = isPrivacyUnlocked || Boolean(unlockedScheduleIds && unlockedScheduleIds.has(block.id));
-                    const isLockedSchedule = Boolean(block.isLocked && !isScheduleUnlocked);
-                    // Phát hiện nếu card nằm sát đáy ngày (sau ~20:40 hoặc đáy task >= 1340px)
-                    const isNearBottom = top >= 1240 || (top + height >= 1340);
+                    let calculatedTransform = 'none';
 
                     if (isHovered && !isLockedSchedule) {
                       if (isNearBottom) {
-                        // Neo ở cạnh dưới để thẻ TỰ ĐỘNG NỞ LÊN TRÊN (upwards)
-                        // Giữ nguyên cạnh đáy của thẻ tại taskBottom để con trỏ chuột không bao giờ bị tuột ra ngoài mép đáy!
-                        const taskBottom = top + height;
-                        const bottomOffset = Math.max(24, TOTAL_GRID_HEIGHT - taskBottom);
+                        // Neo ở cạnh dưới để thẻ tự động nở lên trên (upwards)
+                        const taskBottom = Math.min(top + height, TOTAL_GRID_HEIGHT - 4);
+                        const bottomOffset = Math.max(4, TOTAL_GRID_HEIGHT - taskBottom);
                         calculatedBottom = `${bottomOffset}px`;
+                        calculatedTop = undefined;
                       } else {
-                        // Neo ở cạnh trên: giữ nguyên top để con trỏ chuột không bị trượt ra ngoài mép đỉnh!
-                        calculatedTop = top;
+                        // Neo ở cạnh trên: nở xuống dưới tự nhiên, đỉnh không tràn lên trên 0px
+                        calculatedTop = Math.max(2, top);
+                        calculatedBottom = undefined;
                       }
 
-                      if (DAYS.length === 1) {
-                        // Chế độ xem 1 ngày: cột rất rộng
+                      if (isInnerCol) {
+                        // CÁC LỊCH TRÌNH NẰM PHÍA BÊN TRONG CALENDAR:
+                        // Căn giữa trục ngang cân đối (centered), bung nở đều sang 2 bên
+                        calculatedLeft = `calc(${leftPercent + colWidthPercent / 2}%)`;
+                        calculatedRight = 'auto';
+                        calculatedWidth = `max(calc(${colWidthPercent}% - 4px), ${hoverCardWidth}px)`;
+                        calculatedTransform = 'translateX(-50%) translateY(-1px)';
+                      } else if (isFarRightEdge) {
+                        // CỘT SÁT BIÊN PHẢI (Chủ Nhật):
+                        // Neo sát lề phải, mở rộng sang TRÁI -> 100% không tràn ra ngoài calendar
+                        calculatedRight = totalCols > 1 ? `calc(${100 - leftPercent - colWidthPercent}% + 2px)` : '2px';
+                        calculatedLeft = 'auto';
+                        calculatedWidth = `max(calc(${colWidthPercent}% - 4px), ${hoverCardWidth}px)`;
+                        calculatedTransform = 'translateY(-1px)';
+                      } else if (isFarLeftEdge) {
+                        // CỘT SÁT BIÊN TRÁI (Thứ Hai):
+                        // Neo sát lề trái, mở rộng sang PHẢI -> 100% không tràn sang time-gutter
+                        calculatedLeft = totalCols > 1 ? `calc(${leftPercent}% + 2px)` : '2px';
+                        calculatedRight = 'auto';
+                        calculatedWidth = `max(calc(${colWidthPercent}% - 4px), ${hoverCardWidth}px)`;
+                        calculatedTransform = 'translateY(-1px)';
+                      } else {
+                        // Chế độ 1 ngày đơn cột:
+                        calculatedLeft = '3px';
+                        calculatedRight = 'auto';
+                        calculatedWidth = 'calc(100% - 6px)';
+                        calculatedTransform = 'translateY(-1px)';
+                      }
+                    } else {
+                      // KHI KHÔNG HOVER (Trạng thái tĩnh bình thường) HOẶC LÀ LOCKED SCHEDULE:
+                      if (isInnerCol) {
+                        // Định vị căn giữa trục ngang đồng bộ để khi hover nở ra từ đúng tâm, không bị nhảy giật
+                        calculatedLeft = `calc(${leftPercent + colWidthPercent / 2}%)`;
+                        calculatedRight = 'auto';
+                        calculatedWidth = `calc(${colWidthPercent}% - 4px)`;
+                        calculatedTransform = (isHovered && isLockedSchedule) ? 'translateX(-50%) translateY(-2px)' : 'translateX(-50%)';
+                      } else if (isFarRightEdge) {
+                        calculatedRight = totalCols > 1 ? `calc(${100 - leftPercent - colWidthPercent}% + 2px)` : '2px';
+                        calculatedLeft = 'auto';
+                        calculatedWidth = `calc(${colWidthPercent}% - 4px)`;
+                        calculatedTransform = (isHovered && isLockedSchedule) ? 'translateY(-2px)' : 'none';
+                      } else if (isFarLeftEdge) {
+                        calculatedLeft = totalCols > 1 ? `calc(${leftPercent}% + 2px)` : '2px';
+                        calculatedRight = 'auto';
+                        calculatedWidth = `calc(${colWidthPercent}% - 4px)`;
+                        calculatedTransform = (isHovered && isLockedSchedule) ? 'translateY(-2px)' : 'none';
+                      } else {
                         if (totalCols > 1) {
-                          if (colIndex === totalCols - 1) {
-                            calculatedRight = '2px';
-                            calculatedLeft = 'auto';
-                          } else if (colIndex === 0) {
-                            calculatedLeft = '2px';
-                            calculatedRight = 'auto';
-                          } else {
-                            calculatedLeft = `calc(${leftPercent}% + 2px)`;
-                            calculatedRight = 'auto';
-                          }
-                          calculatedWidth = `max(calc(${colWidthPercent}% - 4px), ${hoverCardWidth}px)`;
+                          calculatedLeft = `calc(${leftPercent}% + 2px)`;
+                          calculatedRight = 'auto';
+                          calculatedWidth = `calc(${colWidthPercent}% - 4px)`;
                         } else {
                           calculatedLeft = '3px';
                           calculatedRight = 'auto';
                           calculatedWidth = 'calc(100% - 6px)';
                         }
-                      } else if (isRightmostEdge) {
-                        // CHỈ CARD CUỐI BÊN PHẢI (Chủ Nhật sát mép phải):
-                        // Luôn neo mép phải '2px', mở rộng lệch sang TRÁI nếu hẹp hơn 236px, không bao giờ co hẹp hơn cột!
-                        calculatedRight = '2px';
-                        calculatedLeft = 'auto';
-                        calculatedWidth = `max(calc(100% - 5px), ${hoverCardWidth}px)`;
-                      } else if (dayIndex === 0) {
-                        // Sát mép trái (Thứ Hai):
-                        // Luôn neo mép trái '2px', mở rộng sang PHẢI nếu hẹp hơn 236px, không bao giờ co hẹp hơn cột!
-                        calculatedLeft = '2px';
-                        calculatedRight = 'auto';
-                        calculatedWidth = `max(calc(100% - 5px), ${hoverCardWidth}px)`;
-                      } else {
-                        // Tất cả các ngày ở giữa (Thứ Ba, Thứ Tư, Thứ Năm, Thứ Sáu, Thứ Bảy):
-                        if (totalCols > 1) {
-                          calculatedLeft = `calc(${leftPercent}% + 2px)`;
-                          calculatedRight = 'auto';
-                          calculatedWidth = `max(calc(${colWidthPercent}% - 4px), ${hoverCardWidth}px)`;
-                        } else {
-                          // Nếu cột rộng hơn 236px -> giữ nguyên left: 3px và width: calc(100% - 6px) để không bị hụt chuột ở mép cột!
-                          // Chỉ căn giữa nếu cột hẹp hơn 236px (nở đều ra ngoài)
-                          calculatedLeft = `min(3px, calc(50% - ${hoverCardWidth / 2}px))`;
-                          calculatedRight = 'auto';
-                          calculatedWidth = `max(calc(100% - 6px), ${hoverCardWidth}px)`;
-                        }
-                      }
-                    } else {
-                      if (totalCols > 1) {
-                        calculatedLeft = `calc(${leftPercent}% + 2px)`;
-                        calculatedRight = 'auto';
-                        calculatedWidth = `calc(${colWidthPercent}% - 4px)`;
-                      } else {
-                        calculatedLeft = '3px';
-                        calculatedRight = 'auto';
-                        calculatedWidth = 'calc(100% - 6px)';
+                        calculatedTransform = (isHovered && isLockedSchedule) ? 'translateY(-2px)' : 'none';
                       }
                     }
 
                     if (isLockedSchedule) {
                       // Placement: Nếu card ở sát đỉnh lịch (< 170px) -> đặt popup bên dưới ('bottom'), mũi tên ở trên chĩa lên
                       // Nếu card ở dưới -> đặt popup bên trên ('top'), mũi tên ở dưới chĩa xuống
-                      const isNearTop = calculatedTop < 170;
+                      const isNearTop = (calculatedTop ?? top) < 170;
                       const dynamicPlacement: 'top' | 'bottom' = isNearTop ? 'bottom' : 'top';
 
                       // ArrowAlign: Linh động theo cột của ngày để mũi tên luôn chỉ vào card và không bao giờ tràn lề màn hình
@@ -1060,23 +1105,12 @@ export default function WeeklyCalendar({
                         }
                       } else {
                         // 7-day week view:
-                        // Các ngày đầu tuần (Thứ Hai, Thứ Ba): Mũi tên lệch trái ('start'), thân bubble bung sang phải
-                        if (dayIndex <= 1) {
+                        if (dayIndex === 0) {
                           dynamicArrowAlign = 'start';
-                        }
-                        // Các ngày cuối tuần (Thứ Bảy, Chủ Nhật): Mũi tên lệch phải ('end'), thân bubble bung sang trái
-                        else if (dayIndex >= DAYS.length - 2) {
+                        } else if (dayIndex === DAYS.length - 1) {
                           dynamicArrowAlign = 'end';
-                        }
-                        // Các ngày giữa tuần (Thứ Tư, Thứ Năm, Thứ Sáu): Căn giữa ('center')
-                        else {
-                          if (totalCols > 1) {
-                            if (colIndex === 0 && dayIndex === 2) dynamicArrowAlign = 'start';
-                            else if (colIndex === totalCols - 1 && dayIndex === 4) dynamicArrowAlign = 'end';
-                            else dynamicArrowAlign = 'center';
-                          } else {
-                            dynamicArrowAlign = 'center';
-                          }
+                        } else {
+                          dynamicArrowAlign = 'center';
                         }
                       }
 
@@ -1090,12 +1124,14 @@ export default function WeeklyCalendar({
                           className={`event-block locked-schedule-card ${focusedTaskId === block.id ? 'is-search-target' : ''} ${isShortBlock ? 'short-block' : ''} ${isHovered ? 'is-hovered' : ''}`}
                           style={{
                             position: 'absolute',
-                            top: `${calculatedTop}px`,
+                            top: calculatedTop !== undefined ? `${calculatedTop}px` : 'auto',
+                            bottom: calculatedBottom || 'auto',
                             height: `${height}px`,
                             minHeight: 32,
                             left: calculatedLeft,
                             right: calculatedRight,
                             width: calculatedWidth,
+                            transform: calculatedTransform,
                             zIndex: isLockPopoverOpen ? 9999 : (isHovered ? 200 : (2 + colIndex)),
                             padding: height <= 44 ? '2px 4px' : (height < 75 ? '4px 6px' : '6px 8px'),
                             boxSizing: 'border-box',
@@ -1315,19 +1351,21 @@ export default function WeeklyCalendar({
                         }}
                         className={`event-block ${focusedTaskId === block.id ? 'is-search-target' : ''} ${isShortBlock ? 'short-block' : ''} ${isSuperTiny ? 'super-tiny-block' : ''} ${isHovered ? 'is-hovered' : ''} ${isDragging ? 'is-dragging' : ''}`}
                         style={{
-                          top: isHovered && isNearBottom ? 'auto' : `${calculatedTop}px`,
-                          bottom: isHovered && isNearBottom ? calculatedBottom : 'auto',
+                          top: calculatedTop !== undefined ? `${calculatedTop}px` : 'auto',
+                          bottom: calculatedBottom || 'auto',
                           height: isHovered ? 'auto' : `${height}px`,
-                          minHeight: undefined,
+                          minHeight: isHovered ? `${height}px` : undefined,
                           left: calculatedLeft,
                           right: calculatedRight,
                           width: calculatedWidth,
-                          minWidth: isHovered ? '236px' : undefined,
-                          maxWidth: undefined,
+                          minWidth: isHovered && DAYS.length > 1 ? `${hoverCardWidth}px` : undefined,
+                          maxWidth: isHovered && DAYS.length > 1 ? '260px' : undefined,
+                          transform: calculatedTransform,
                           zIndex: isDragging ? 120 : (duplicateBlockId === block.id ? 9999 : (isHovered ? 100 : 2 + colIndex)),
                           borderLeft: styles.borderLeft,
                           backgroundColor: styles.backgroundColor,
                           boxSizing: 'border-box',
+                          paddingBottom: isHovered && isNearBottom ? 8 : undefined,
                         }}
                         onMouseEnter={(e) => {
                           handleBlockMouseEnter(block.id, e.currentTarget.getBoundingClientRect());
@@ -1456,9 +1494,6 @@ export default function WeeklyCalendar({
                             width: '100%',
                             boxSizing: 'border-box',
                             gap: 3,
-                            marginTop: 6,
-                            paddingTop: 6,
-                            borderTop: '1px dashed rgba(0,0,0,0.14)',
                           }}
                           onClick={(e) => e.stopPropagation()}
                         >
@@ -1566,7 +1601,8 @@ export default function WeeklyCalendar({
                               border: '1.5px solid #FCD34D',
                               boxShadow: '0 16px 36px -6px rgba(217, 119, 6, 0.35), 0 4px 16px rgba(0,0,0,0.18)',
                               padding: '10px 10px 8px',
-                              animation: 'popoverFadeIn 0.16s cubic-bezier(0.16, 1, 0.3, 1)',
+                              animation: `${isClosingDuplicate ? 'popoverFadeOut' : 'popoverFadeIn'} 0.16s cubic-bezier(0.16, 1, 0.3, 1) forwards`,
+                              pointerEvents: isClosingDuplicate ? 'none' : 'auto',
                               cursor: 'default',
                             }}
                           >
@@ -1589,7 +1625,7 @@ export default function WeeklyCalendar({
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setDuplicateBlockId(null);
+                                  closeDuplicatePopover();
                                 }}
                                 style={{
                                   background: 'transparent',

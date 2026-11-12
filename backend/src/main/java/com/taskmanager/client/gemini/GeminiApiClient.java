@@ -22,7 +22,7 @@ public class GeminiApiClient {
     @Value("${gemini.api.key:}")
     private String apiKey;
 
-    @Value("${gemini.api.model:gemini-1.5-flash}")
+    @Value("${gemini.api.model:gemini-3.5-flash-lite}")
     private String model;
 
     @Value("${gemini.api.url:https://generativelanguage.googleapis.com/v1beta/models}")
@@ -40,8 +40,8 @@ public class GeminiApiClient {
      * Kiểm tra xem API Key đã được cấu hình hợp lệ chưa
      */
     public boolean isConfigured() {
-        return apiKey != null 
-                && !apiKey.isBlank() 
+        return apiKey != null
+                && !apiKey.isBlank()
                 && !"YOUR_GEMINI_API_KEY_HERE".equalsIgnoreCase(apiKey.trim())
                 && apiKey.length() > 10;
     }
@@ -50,7 +50,7 @@ public class GeminiApiClient {
      * Gửi yêu cầu sinh nội dung dạng JSON tới Gemini API
      *
      * @param systemInstruction Hướng dẫn hệ thống (System Prompt)
-     * @param userPrompt         Nội dung câu lệnh của người dùng kèm ngữ cảnh
+     * @param userPrompt        Nội dung câu lệnh của người dùng kèm ngữ cảnh
      * @return Chuỗi JSON trả về từ Gemini (nếu thành công)
      */
     public Optional<String> generateJsonResponse(String systemInstruction, String userPrompt) {
@@ -60,14 +60,32 @@ public class GeminiApiClient {
         }
 
         List<String> candidateModels = new ArrayList<>();
-        if (model != null && !model.isBlank() && !model.contains("3.5")) {
+        if (model != null && !model.isBlank()) {
             candidateModels.add(model.trim());
         }
-        if (!candidateModels.contains("gemini-1.5-flash")) {
-            candidateModels.add("gemini-1.5-flash");
+        if (!candidateModels.contains("gemini-3.1-flash-lite")) {
+            candidateModels.add("gemini-3.1-flash-lite");
+        }
+        if (!candidateModels.contains("gemini-3.1-flash-lite-preview")) {
+            candidateModels.add("gemini-3.1-flash-lite-preview");
+        }
+        if (!candidateModels.contains("gemini-3.8-flash")) {
+            candidateModels.add("gemini-3.8-flash");
+        }
+        if (!candidateModels.contains("gemini-3.5-flash-lite")) {
+            candidateModels.add("gemini-3.5-flash-lite");
+        }
+        if (!candidateModels.contains("gemini-3.5-flash")) {
+            candidateModels.add("gemini-3.5-flash");
+        }
+        if (!candidateModels.contains("gemini-flash-latest")) {
+            candidateModels.add("gemini-flash-latest");
         }
         if (!candidateModels.contains("gemini-2.0-flash")) {
             candidateModels.add("gemini-2.0-flash");
+        }
+        if (!candidateModels.contains("gemini-1.5-flash")) {
+            candidateModels.add("gemini-1.5-flash");
         }
 
         Map<String, Object> requestBody = new HashMap<>();
@@ -75,17 +93,14 @@ public class GeminiApiClient {
         // 1. System instruction
         if (systemInstruction != null && !systemInstruction.isBlank()) {
             requestBody.put("system_instruction", Map.of(
-                    "parts", List.of(Map.of("text", systemInstruction))
-            ));
+                    "parts", List.of(Map.of("text", systemInstruction))));
         }
 
         // 2. User content
         requestBody.put("contents", List.of(
                 Map.of(
                         "role", "user",
-                        "parts", List.of(Map.of("text", userPrompt))
-                )
-        ));
+                        "parts", List.of(Map.of("text", userPrompt)))));
 
         // 3. Generation config with JSON mode
         Map<String, Object> generationConfig = new HashMap<>();

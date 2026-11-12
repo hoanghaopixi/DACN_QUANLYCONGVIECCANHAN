@@ -162,8 +162,12 @@ export function formatAuthErrorMessage(err: any): string {
 
   // 2. Phân loại theo mã HTTP Status Code
   const status = err.response?.status;
+  const reqUrl = String(err.config?.url || '');
   if (status === 401) {
-    return 'Mật khẩu không chính xác. Vui lòng kiểm tra lại!';
+    if (reqUrl.includes('/auth/google')) {
+      return 'Xác thực tài khoản Google không thành công. Vui lòng thử lại!';
+    }
+    return 'Email hoặc mật khẩu không chính xác. Vui lòng kiểm tra lại!';
   }
   if (status === 404) {
     return 'Tài khoản email này chưa được đăng ký trong hệ thống.';
@@ -178,7 +182,7 @@ export function formatAuthErrorMessage(err: any): string {
     return 'Địa chỉ email này đã được sử dụng. Vui lòng đăng nhập hoặc dùng email khác.';
   }
   if (status >= 500) {
-    return 'Máy chủ đang gặp sự cố tạm thời (Lỗi 500). Vui lòng thử lại sau.';
+    return 'Máy chủ đang gặp sự cố tạm thời. Vui lòng thử lại sau ít phút.';
   }
 
   // 3. Phân loại theo lỗi mạng hoặc kết nối server
@@ -187,6 +191,11 @@ export function formatAuthErrorMessage(err: any): string {
   }
   if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
     return 'Thời gian phản hồi máy chủ quá lâu (Hết thời gian chờ). Vui lòng thử lại.';
+  }
+
+  // 4. Trả về thông báo lỗi trực tiếp nếu có từ đối tượng Error
+  if (err.message && typeof err.message === 'string' && !err.message.includes('status code')) {
+    return err.message;
   }
 
   return 'Đăng nhập không thành công. Vui lòng kiểm tra lại thông tin tài khoản!';

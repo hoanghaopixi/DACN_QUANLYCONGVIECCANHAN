@@ -11,6 +11,7 @@ import EyeLockIcon from './EyeLockIcon';
 import Time24Input from './Time24Input';
 import DateInput from './DateInput';
 import HoverSelect from './HoverSelect';
+import { useModalAnimation } from '../hooks/useModalAnimation';
 import './TaskModal.css';
 
 interface TaskModalProps {
@@ -30,6 +31,7 @@ export default function TaskModal({
   categories,
   initialData,
 }: TaskModalProps) {
+  const { shouldRender, isClosing } = useModalAnimation(isOpen, 200);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [offHoursWarning, setOffHoursWarning] = useState<WorkHoursValidationResult | null>(null);
   const [title, setTitle] = useState('');
@@ -122,15 +124,15 @@ export default function TaskModal({
   }, [initialData, isOpen]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!shouldRender) return;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = prevOverflow;
     };
-  }, [isOpen]);
+  }, [shouldRender]);
 
-  if (!isOpen || typeof document === 'undefined') return null;
+  if (!shouldRender || typeof document === 'undefined') return null;
 
   const doSaveTask = async () => {
     const fullStartTime = `${date}T${startTime}:00+07:00`;
@@ -288,8 +290,14 @@ export default function TaskModal({
   const subtasksProgress = subtasks.length > 0 ? Math.round((completedSubtasksCount / subtasks.length) * 100) : 0;
 
   return createPortal(
-    <div className="task-modal-overlay">
-      <div className="task-modal-shell">
+    <div
+      className={`task-modal-overlay ${isClosing ? 'is-closing' : ''}`}
+      onClick={onClose}
+    >
+      <div
+        className={`task-modal-shell ${isClosing ? 'is-closing' : ''}`}
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Modal Header */}
         <div className="task-modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

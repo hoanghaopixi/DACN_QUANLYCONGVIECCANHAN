@@ -7,6 +7,7 @@ import {
 import { AutoScheduleResponse } from '../types';
 import { autoScheduleService } from '../services/autoScheduleService';
 import { aiPrivacyService } from '../services/aiPrivacyService';
+import { useModalAnimation } from '../hooks/useModalAnimation';
 
 interface AutoScheduleModalProps {
   isOpen: boolean;
@@ -23,6 +24,8 @@ export default function AutoScheduleModal({
   onApplied,
   onShowToast,
 }: AutoScheduleModalProps) {
+  const { shouldRender, isClosing } = useModalAnimation(isOpen, 220);
+
   const getTodayStr = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -64,15 +67,15 @@ export default function AutoScheduleModal({
   };
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!shouldRender) return;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = prevOverflow;
     };
-  }, [isOpen]);
+  }, [shouldRender]);
 
-  if (!isOpen || typeof document === 'undefined') return null;
+  if (!shouldRender || typeof document === 'undefined') return null;
 
   const isWorkspaceAllowed = aiPrivacyService.isWorkspaceAllowed(workspaceId);
 
@@ -140,6 +143,7 @@ export default function AutoScheduleModal({
 
   return createPortal(
     <div
+      onClick={onClose}
       style={{
         position: 'fixed',
         inset: 0,
@@ -150,9 +154,12 @@ export default function AutoScheduleModal({
         justifyContent: 'center',
         zIndex: 9999,
         padding: 16,
+        animation: isClosing ? 'modalBackdropFadeOut 0.22s ease-in forwards' : 'modalBackdropFadeIn 0.22s ease-out',
+        pointerEvents: isClosing ? 'none' : 'auto',
       }}
     >
       <div
+        onClick={(e) => e.stopPropagation()}
         style={{
           background: 'var(--surface)',
           borderRadius: 20,
@@ -164,7 +171,9 @@ export default function AutoScheduleModal({
           flexDirection: 'column',
           boxShadow: 'var(--shadow-lg)',
           overflow: 'hidden',
-          animation: 'modalSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
+          animation: isClosing
+            ? 'modalSlideDown 0.22s cubic-bezier(0.4, 0, 1, 1) forwards'
+            : 'modalSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
         }}
       >
         {/* Header */}

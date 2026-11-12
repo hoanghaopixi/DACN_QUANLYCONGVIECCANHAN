@@ -7,8 +7,8 @@
 --   - Tên thuộc tính: Viết hoa các âm (PascalCase), không dùng dấu gạch dưới _
 -- ==============================================================================
 
--- Drop tables if exists (theo thứ tự khóa ngoại)
 DROP TABLE IF EXISTS nhatkythoiquen CASCADE;
+DROP TABLE IF EXISTS xacthucotp CASCADE;
 DROP TABLE IF EXISTS thongbao CASCADE;
 DROP TABLE IF EXISTS nhatkynangsuat CASCADE;
 DROP TABLE IF EXISTS nhatkyai CASCADE;
@@ -30,10 +30,11 @@ DROP TABLE IF EXISTS nguoidung CASCADE;
 CREATE TABLE nguoidung (
     "id" BIGSERIAL PRIMARY KEY,
     "Email" VARCHAR(120) NOT NULL UNIQUE,
-    "MatKhau" VARCHAR(255) NOT NULL,
+    "MatKhau" VARCHAR(255),
     "HoVaTen" VARCHAR(100) NOT NULL,
     "SoDienThoai" VARCHAR(20),
     "AnhDaiDien" VARCHAR(500),
+    "GoogleId" VARCHAR(100) UNIQUE,
     "NguonXacThuc" VARCHAR(20) DEFAULT 'LOCAL', -- LOCAL, GOOGLE
     "KichHoat" BOOLEAN DEFAULT TRUE,
     "XacThucEmail" BOOLEAN DEFAULT FALSE,
@@ -72,6 +73,19 @@ CREATE TABLE caidatnguoidung (
     "HinhNenUrl" TEXT,
     "LoaiHinhNen" VARCHAR(20) DEFAULT 'NONE',    -- NONE, IMAGE, VIDEO
     "DoPhuToi" INT DEFAULT 50,                   -- Độ phủ tối 0-100%
+    "GioNghiTruaBatDau" TIME DEFAULT '12:00:00',
+    "GioNghiTruaKetThuc" TIME DEFAULT '13:00:00',
+    "ChoPhepCuoiTuan" BOOLEAN DEFAULT TRUE,
+    "TuDongTimKhoangTrong" BOOLEAN DEFAULT TRUE,
+    "LuonHoiTruocKhiDoi" BOOLEAN DEFAULT TRUE,
+    "ChoPhepChiaNhoViec" BOOLEAN DEFAULT TRUE,
+    "TuDongDoiLichCoDinh" BOOLEAN DEFAULT FALSE,
+    "NhacNhoTruocPhut" INT DEFAULT 15,
+    "GioKhongLamPhienBatDau" TIME DEFAULT '22:00:00',
+    "GioKhongLamPhienKetThuc" TIME DEFAULT '07:00:00',
+    "ThongBaoThietBi" BOOLEAN DEFAULT TRUE,
+    "EmailTomTatBuoiSang" BOOLEAN DEFAULT FALSE,
+    "NgonNgu" VARCHAR(50) DEFAULT 'Tiếng Việt',
     "NgayTao" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     "NgayCapNhat" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -248,6 +262,18 @@ CREATE TABLE nhatkythoiquen (
     CONSTRAINT uq_nhatkythoiquen_task_date UNIQUE ("CongViecId", "NgayGhiNhan")
 );
 
+-- 17. Bảng XACTHUCOTP (Xác thực mã OTP gửi qua Gmail đặt lại mật khẩu / xác thực email)
+CREATE TABLE xacthucotp (
+    "id" BIGSERIAL PRIMARY KEY,
+    "Email" VARCHAR(120) NOT NULL,
+    "MaOtp" VARCHAR(10) NOT NULL,
+    "LoaiOtp" VARCHAR(30) DEFAULT 'FORGOT_PASSWORD', -- FORGOT_PASSWORD, VERIFY_EMAIL
+    "HetHanLuc" TIMESTAMPTZ NOT NULL,
+    "DaSuDung" BOOLEAN DEFAULT FALSE,
+    "SoLanThu" INT DEFAULT 0,
+    "NgayTao" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ==============================================================================
 -- INDEXES TỐI ƯU HÓA HIỆU NĂNG TRUY VẤN
 -- ==============================================================================
@@ -260,6 +286,7 @@ CREATE INDEX idx_nhacnho_dagui ON nhacnho("ThoiGianNhac") WHERE "DaGui" = FALSE;
 CREATE INDEX idx_thongbao_nguoidung_dadoc ON thongbao("NguoiDungId", "DaDoc");
 CREATE INDEX idx_nhatkythoiquen_nguoidung ON nhatkythoiquen("NguoiDungId");
 CREATE INDEX idx_nhatkythoiquen_congviec ON nhatkythoiquen("CongViecId");
+CREATE INDEX idx_xacthucotp_email_loai ON xacthucotp("Email", "LoaiOtp");
 
 -- ==============================================================================
 -- DỮ LIỆU MẪU BAN ĐẦU (SEED DATA)

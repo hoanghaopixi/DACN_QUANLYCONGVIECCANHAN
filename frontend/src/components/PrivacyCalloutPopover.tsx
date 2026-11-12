@@ -5,6 +5,7 @@ import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { authService } from '../services/authService';
 import { formatAuthErrorMessage } from '../utils/authValidation';
 import PrivacyCalloutFrame, { CalloutPlacement, CalloutArrowAlign } from './PrivacyCalloutFrame';
+import { useModalAnimation } from '../hooks/useModalAnimation';
 
 interface PrivacyCalloutPopoverProps {
   isOpen: boolean;
@@ -27,6 +28,7 @@ export default function PrivacyCalloutPopover({
   targetRect,
   style = {},
 }: PrivacyCalloutPopoverProps) {
+  const { shouldRender, isClosing } = useModalAnimation(isOpen, 180);
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +53,7 @@ export default function PrivacyCalloutPopover({
   }, [isOpen]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || isClosing) return;
 
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -71,9 +73,9 @@ export default function PrivacyCalloutPopover({
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, isClosing, onClose]);
 
-  if (!isOpen) return null;
+  if (!shouldRender) return null;
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) {
@@ -115,8 +117,10 @@ export default function PrivacyCalloutPopover({
     // Password callouts must sit above month/weekly task hover cards and shields.
     zIndex: 100100,
     filter: 'drop-shadow(0 16px 36px rgba(0, 0, 0, 0.5))',
-    animation: 'privacyModalScaleUp 0.18s cubic-bezier(0.16, 1.25, 0.3, 1)',
-    pointerEvents: 'auto',
+    animation: isClosing
+      ? 'privacyModalScaleDown 0.18s cubic-bezier(0.4, 0, 1, 1) forwards'
+      : 'privacyModalScaleUp 0.18s cubic-bezier(0.16, 1.25, 0.3, 1)',
+    pointerEvents: isClosing ? 'none' : 'auto',
   };
 
   if (targetRect) {

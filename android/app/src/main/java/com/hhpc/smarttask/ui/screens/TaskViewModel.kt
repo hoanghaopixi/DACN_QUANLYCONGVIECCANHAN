@@ -99,6 +99,15 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        try {
+            val resCat = categoryApi.getCategories(_selectedWorkspaceId.value)
+            if (resCat.isSuccessful && resCat.body() != null) {
+                _categories.value = resCat.body()!!
+            }
+        } catch (e: Exception) {
+            // Ignore
+        }
+
         val resTasks = taskRepository.getTasks(_selectedWorkspaceId.value)
         resTasks.onSuccess { list ->
             _tasks.value = list
@@ -216,13 +225,16 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun updateTask(id: Long, updated: TaskDto) {
+    fun updateTask(id: Long, updated: TaskDto, onResult: (Boolean, String?) -> Unit = { _, _ -> }) {
         viewModelScope.launch {
             val res = taskRepository.updateTask(id, updated)
             res.onSuccess {
                 loadTasks()
                 loadEisenhower()
                 loadProductivityReport()
+                onResult(true, "Cập nhật công việc thành công!")
+            }.onFailure { err ->
+                onResult(false, err.message ?: "Không thể cập nhật công việc.")
             }
         }
     }
@@ -246,6 +258,40 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun breakdownTaskWithAi(taskId: Long, onDone: (Boolean, String?) -> Unit = { _, _ -> }) {
+        viewModelScope.launch {
+            val res = taskRepository.breakdownTask(taskId)
+            res.onSuccess {
+                loadTasks()
+                onDone(true, "Đã phân rã công việc thành các bước con thành công!")
+            }.onFailure { err ->
+                onDone(false, err.message ?: "Không thể phân rã công việc")
+            }
+        }
+    }
+
+    fun toggleSubtask(subtaskId: Long) {
+        viewModelScope.launch {
+            val res = taskRepository.toggleSubtask(subtaskId)
+            res.onSuccess {
+                loadTasks()
+            }
+        }
+    }
+
+    fun createSubtask(taskId: Long, title: String, onDone: (Boolean) -> Unit = {}) {
+        if (title.isBlank()) return
+        viewModelScope.launch {
+            val res = taskRepository.createSubtask(taskId, com.hhpc.smarttask.data.model.SubtaskDto(title = title.trim()))
+            res.onSuccess {
+                loadTasks()
+                onDone(true)
+            }.onFailure {
+                onDone(false)
+            }
+        }
+    }
+
     fun createWorkspace(name: String, iconName: String? = "Briefcase") {
         if (name.isBlank()) return
         val newWs = Workspace(name = name, iconName = iconName)
@@ -253,6 +299,40 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             val res = workspaceRepository.createWorkspace(newWs)
             res.onSuccess {
                 loadWorkspaces()
+            }
+        }
+    }
+
+    fun updateWorkspace(id: Long, name: String) {
+        if (name.isBlank()) return
+        val updatedWs = Workspace(id = id, name = name)
+        viewModelScope.launch {
+            try {
+                val workspaceApi = ApiClient.getWorkspaceApi(getApplication())
+                val res = workspaceApi.updateWorkspace(id, updatedWs)
+                if (res.isSuccessful) {
+                    loadWorkspaces()
+                }
+            } catch (e: Exception) {
+                // Ignore
+            }
+        }
+    }
+
+    fun deleteWorkspace(id: Long) {
+        viewModelScope.launch {
+            try {
+                val workspaceApi = ApiClient.getWorkspaceApi(getApplication())
+                val res = workspaceApi.deleteWorkspace(id)
+                if (res.isSuccessful) {
+                    if (_selectedWorkspaceId.value == id) {
+                        _selectedWorkspaceId.value = null
+                    }
+                    loadWorkspaces()
+                    loadTasks()
+                }
+            } catch (e: Exception) {
+                // Ignore
             }
         }
     }
@@ -273,6 +353,34 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (e: Exception) {
                 // Ignore fallback
+            }
+        }
+    }
+
+    fun updateCategory(id: Long, name: String, colorCode: String = "#10B981") {
+        if (name.isBlank()) return
+        val updatedCat = Category(id = id, name = name, colorCode = colorCode, workspaceId = _selectedWorkspaceId.value)
+        viewModelScope.launch {
+            try {
+                val res = categoryApi.updateCategory(id, updatedCat)
+                if (res.isSuccessful) {
+                    loadCategories()
+                }
+            } catch (e: Exception) {
+                // Ignore
+            }
+        }
+    }
+
+    fun deleteCategory(id: Long) {
+        viewModelScope.launch {
+            try {
+                val res = categoryApi.deleteCategory(id)
+                if (res.isSuccessful) {
+                    loadCategories()
+                }
+            } catch (e: Exception) {
+                // Ignore
             }
         }
     }

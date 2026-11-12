@@ -6,6 +6,8 @@ __pycache__/
 
 # Node.js
 node_modules/
+**/node_modules/
+frontend/node_modules/
 
 # Build output
 backend/target/

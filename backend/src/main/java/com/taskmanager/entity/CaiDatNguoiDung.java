@@ -65,6 +65,58 @@ public class CaiDatNguoiDung {
     @Builder.Default
     private Integer overlayDarkness = 50; // 0 to 100 percentage (default 50%)
 
+    @Column(name = "\"GioNghiTruaBatDau\"")
+    @Builder.Default
+    private LocalTime lunchBreakStart = LocalTime.of(12, 0);
+
+    @Column(name = "\"GioNghiTruaKetThuc\"")
+    @Builder.Default
+    private LocalTime lunchBreakEnd = LocalTime.of(13, 0);
+
+    @Column(name = "\"ChoPhepCuoiTuan\"")
+    @Builder.Default
+    private Boolean allowWeekendTasks = true;
+
+    @Column(name = "\"TuDongTimKhoangTrong\"")
+    @Builder.Default
+    private Boolean aiAutoFindSlot = true;
+
+    @Column(name = "\"LuonHoiTruocKhiDoi\"")
+    @Builder.Default
+    private Boolean aiAlwaysAskBeforeChange = true;
+
+    @Column(name = "\"ChoPhepChiaNhoViec\"")
+    @Builder.Default
+    private Boolean aiAllowSplitLongTasks = true;
+
+    @Column(name = "\"TuDongDoiLichCoDinh\"")
+    @Builder.Default
+    private Boolean aiAutoMoveFixedTasks = false;
+
+    @Column(name = "\"NhacNhoTruocPhut\"")
+    @Builder.Default
+    private Integer reminderMinutesBefore = 15;
+
+    @Column(name = "\"GioKhongLamPhienBatDau\"")
+    @Builder.Default
+    private LocalTime dndStartTime = LocalTime.of(22, 0);
+
+    @Column(name = "\"GioKhongLamPhienKetThuc\"")
+    @Builder.Default
+    private LocalTime dndEndTime = LocalTime.of(7, 0);
+
+    @Column(name = "\"ThongBaoThietBi\"")
+    @Builder.Default
+    private Boolean enableDeviceNotifications = true;
+
+    @Column(name = "\"EmailTomTatBuoiSang\"")
+    @Builder.Default
+    private Boolean enableMorningSummaryEmail = false;
+
+    @Column(name = "\"NgonNgu\"", length = 50)
+    @Builder.Default
+    private String language = "Tiếng Việt";
+
     @Column(name = "\"NgayTao\"")
     @Builder.Default
     private OffsetDateTime createdAt = OffsetDateTime.now();

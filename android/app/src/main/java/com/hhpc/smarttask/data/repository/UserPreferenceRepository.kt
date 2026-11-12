@@ -2,6 +2,7 @@ package com.hhpc.smarttask.data.repository
 
 import android.content.Context
 import com.hhpc.smarttask.data.api.ApiClient
+import com.hhpc.smarttask.data.api.ApiErrorParser
 import com.hhpc.smarttask.data.model.UserPreferenceDto
 
 class UserPreferenceRepository(context: Context) {
@@ -13,10 +14,10 @@ class UserPreferenceRepository(context: Context) {
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!)
             } else {
-                Result.failure(Exception("Không thể tải cài đặt thói quen sinh hoạt."))
+                Result.failure(Exception(ApiErrorParser.parseError(response, "Không thể tải cài đặt thói quen sinh hoạt")))
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(ApiErrorParser.parseException(e, "Không thể tải cài đặt thói quen sinh hoạt")))
         }
     }
 
@@ -26,10 +27,10 @@ class UserPreferenceRepository(context: Context) {
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!)
             } else {
-                Result.failure(Exception("Không thể cập nhật cài đặt thói quen."))
+                Result.failure(Exception(ApiErrorParser.parseError(response, "Không thể cập nhật cài đặt thói quen")))
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(ApiErrorParser.parseException(e, "Không thể cập nhật cài đặt thói quen")))
         }
     }
 }

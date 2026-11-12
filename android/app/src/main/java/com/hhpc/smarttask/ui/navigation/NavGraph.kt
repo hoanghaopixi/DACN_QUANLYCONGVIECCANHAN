@@ -57,14 +57,25 @@ fun SmartTaskNavGraph(
     val isMainScreen = currentRoute in mainItems.map { it.route }
     var dragOffsetX by remember { mutableStateOf(0f) }
 
+    // Reactive Auth state listener for seamless Login / Logout navigation!
     LaunchedEffect(authState) {
-        if (authState is AuthState.Success) {
-            taskViewModel.loadData()
-            if (currentRoute == "login" || currentRoute == null) {
-                navController.navigate(BottomNavItem.Tasks.route) {
-                    popUpTo("login") { inclusive = true }
+        when (authState) {
+            is AuthState.Success -> {
+                taskViewModel.loadData()
+                if (currentRoute == "login" || currentRoute == null) {
+                    navController.navigate(BottomNavItem.Calendar.route) {
+                        popUpTo("login") { inclusive = true }
+                    }
                 }
             }
+            is AuthState.Idle -> {
+                if (currentRoute != "login" && currentRoute != null) {
+                    navController.navigate("login") {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            }
+            else -> {}
         }
     }
 
@@ -76,7 +87,7 @@ fun SmartTaskNavGraph(
                     currentRoute = currentRoute,
                     onItemSelected = { item ->
                         navController.navigate(item.route) {
-                            popUpTo(BottomNavItem.Tasks.route) { saveState = true }
+                            popUpTo(BottomNavItem.Calendar.route) { saveState = true }
                             launchSingleTop = true
                             restoreState = true
                         }
@@ -102,7 +113,7 @@ fun SmartTaskNavGraph(
                                     // Swipe Left -> Next tab to the right
                                     val next = mainItems[currIdx + 1]
                                     navController.navigate(next.route) {
-                                        popUpTo(BottomNavItem.Tasks.route) { saveState = true }
+                                        popUpTo(BottomNavItem.Calendar.route) { saveState = true }
                                         launchSingleTop = true
                                         restoreState = true
                                     }
@@ -110,7 +121,7 @@ fun SmartTaskNavGraph(
                                     // Swipe Right -> Previous tab to the left
                                     val prev = mainItems[currIdx - 1]
                                     navController.navigate(prev.route) {
-                                        popUpTo(BottomNavItem.Tasks.route) { saveState = true }
+                                        popUpTo(BottomNavItem.Calendar.route) { saveState = true }
                                         launchSingleTop = true
                                         restoreState = true
                                     }
@@ -169,7 +180,7 @@ fun SmartTaskNavGraph(
                         authViewModel = authViewModel,
                         onLoginSuccess = {
                             taskViewModel.loadData()
-                            navController.navigate(BottomNavItem.Tasks.route) {
+                            navController.navigate(BottomNavItem.Calendar.route) {
                                 popUpTo("login") { inclusive = true }
                             }
                         }
@@ -197,6 +208,7 @@ fun SmartTaskNavGraph(
                         authViewModel = authViewModel,
                         taskViewModel = taskViewModel,
                         onLogout = {
+                            authViewModel.logout()
                             navController.navigate("login") {
                                 popUpTo(0) { inclusive = true }
                             }

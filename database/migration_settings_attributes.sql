@@ -1,0 +1,14 @@
+-- Migration: Bổ sung các thuộc tính thiết lập tài khoản và ứng dụng vào bảng caidatnguoidung
+ALTER TABLE caidatnguoidung ADD COLUMN IF NOT EXISTS "GioNghiTruaBatDau" TIME DEFAULT '12:00:00';
+ALTER TABLE caidatnguoidung ADD COLUMN IF NOT EXISTS "GioNghiTruaKetThuc" TIME DEFAULT '13:00:00';
+ALTER TABLE caidatnguoidung ADD COLUMN IF NOT EXISTS "ChoPhepCuoiTuan" BOOLEAN DEFAULT TRUE;
+ALTER TABLE caidatnguoidung ADD COLUMN IF NOT EXISTS "TuDongTimKhoangTrong" BOOLEAN DEFAULT TRUE;
+ALTER TABLE caidatnguoidung ADD COLUMN IF NOT EXISTS "LuonHoiTruocKhiDoi" BOOLEAN DEFAULT TRUE;
+ALTER TABLE caidatnguoidung ADD COLUMN IF NOT EXISTS "ChoPhepChiaNhoViec" BOOLEAN DEFAULT TRUE;
+ALTER TABLE caidatnguoidung ADD COLUMN IF NOT EXISTS "TuDongDoiLichCoDinh" BOOLEAN DEFAULT FALSE;
+ALTER TABLE caidatnguoidung ADD COLUMN IF NOT EXISTS "NhacNhoTruocPhut" INT DEFAULT 15;
+ALTER TABLE caidatnguoidung ADD COLUMN IF NOT EXISTS "GioKhongLamPhienBatDau" TIME DEFAULT '22:00:00';
+ALTER TABLE caidatnguoidung ADD COLUMN IF NOT EXISTS "GioKhongLamPhienKetThuc" TIME DEFAULT '07:00:00';
+ALTER TABLE caidatnguoidung ADD COLUMN IF NOT EXISTS "ThongBaoThietBi" BOOLEAN DEFAULT TRUE;
+ALTER TABLE caidatnguoidung ADD COLUMN IF NOT EXISTS "EmailTomTatBuoiSang" BOOLEAN DEFAULT FALSE;
+ALTER TABLE caidatnguoidung ADD COLUMN IF NOT EXISTS "NgonNgu" VARCHAR(50) DEFAULT 'Tiếng Việt';
