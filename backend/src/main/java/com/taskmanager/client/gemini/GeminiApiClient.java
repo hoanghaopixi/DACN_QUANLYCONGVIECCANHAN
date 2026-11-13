@@ -22,7 +22,7 @@ public class GeminiApiClient {
     @Value("${gemini.api.key:}")
     private String apiKey;
 
-    @Value("${gemini.api.model:gemini-3.5-flash-lite}")
+    @Value("${gemini.api.model:gemini-3-flash-preview}")
     private String model;
 
     @Value("${gemini.api.url:https://generativelanguage.googleapis.com/v1beta/models}")
@@ -63,29 +63,30 @@ public class GeminiApiClient {
         if (model != null && !model.isBlank()) {
             candidateModels.add(model.trim());
         }
-        if (!candidateModels.contains("gemini-3.1-flash-lite")) {
-            candidateModels.add("gemini-3.1-flash-lite");
+        // Thêm các model đang hoạt động thực tế trên Google AI Studio v1beta
+        if (!candidateModels.contains("gemini-3-flash-preview")) {
+            candidateModels.add("gemini-3-flash-preview");
         }
-        if (!candidateModels.contains("gemini-3.1-flash-lite-preview")) {
-            candidateModels.add("gemini-3.1-flash-lite-preview");
+        if (!candidateModels.contains("gemma-4-26b-a4b-it")) {
+            candidateModels.add("gemma-4-26b-a4b-it");
         }
-        if (!candidateModels.contains("gemini-3.8-flash")) {
-            candidateModels.add("gemini-3.8-flash");
+        if (!candidateModels.contains("gemma-4-31b-it")) {
+            candidateModels.add("gemma-4-31b-it");
         }
         if (!candidateModels.contains("gemini-3.5-flash-lite")) {
             candidateModels.add("gemini-3.5-flash-lite");
+        }
+        if (!candidateModels.contains("gemini-3.1-flash-lite")) {
+            candidateModels.add("gemini-3.1-flash-lite");
+        }
+        if (!candidateModels.contains("gemini-3.8-flash")) {
+            candidateModels.add("gemini-3.8-flash");
         }
         if (!candidateModels.contains("gemini-3.5-flash")) {
             candidateModels.add("gemini-3.5-flash");
         }
         if (!candidateModels.contains("gemini-flash-latest")) {
             candidateModels.add("gemini-flash-latest");
-        }
-        if (!candidateModels.contains("gemini-2.0-flash")) {
-            candidateModels.add("gemini-2.0-flash");
-        }
-        if (!candidateModels.contains("gemini-1.5-flash")) {
-            candidateModels.add("gemini-1.5-flash");
         }
 
         Map<String, Object> requestBody = new HashMap<>();
@@ -111,7 +112,7 @@ public class GeminiApiClient {
         for (String candidateModel : candidateModels) {
             try {
                 String endpoint = String.format("%s/%s:generateContent", apiUrl, candidateModel);
-                log.info("Đang gọi Google Gemini Flash (model: {})...", candidateModel);
+                log.info("Đang gửi yêu cầu tới Google Gemini API (model: {})...", candidateModel);
 
                 String responseBody = webClient.post()
                         .uri(endpoint)
@@ -134,23 +135,36 @@ public class GeminiApiClient {
                     JsonNode parts = candidates.get(0).path("content").path("parts");
                     if (parts.isArray() && !parts.isEmpty()) {
                         for (JsonNode part : parts) {
+                            // Bỏ qua thinking/thought text nếu có
+                            if (part.path("thought").asBoolean(false)) {
+                                continue;
+                            }
                             String text = part.path("text").asString();
-                            if (text != null && !text.isBlank() && text.contains("{")) {
+                            if (text != null && !text.isBlank() && (text.contains("{") || text.contains("["))) {
+                                log.info("Google Gemini (model: {}) phản hồi JSON thành công!", candidateModel);
                                 return Optional.of(text);
                             }
                         }
                         String generatedJsonText = parts.get(0).path("text").asString();
                         if (generatedJsonText != null && !generatedJsonText.isBlank()) {
+                            log.info("Google Gemini (model: {}) phản hồi thành công!", candidateModel);
                             return Optional.of(generatedJsonText);
                         }
                     }
                 }
             } catch (Exception e) {
-                log.warn("Lỗi khi gọi model {} ({}). Thử model tiếp theo nếu có...", candidateModel, e.getMessage());
+                String errMsg = e.getMessage() != null ? e.getMessage() : "";
+                if (errMsg.contains("429") || errMsg.contains("RESOURCE_EXHAUSTED")) {
+                    log.warn("⚠️ Model {} bị chạm giới hạn quota Google Free Tier (429 RESOURCE_EXHAUSTED). Thử model dự phòng...", candidateModel);
+                } else if (errMsg.contains("404")) {
+                    log.warn("Model {} không tồn tại trên endpoint v1beta (404 Not Found). Bỏ qua...", candidateModel);
+                } else {
+                    log.warn("Lỗi khi gọi model {} ({}). Thử model tiếp theo nếu có...", candidateModel, errMsg);
+                }
             }
         }
 
-        log.warn("Tất cả các model Gemini Flash đều không phản hồi.");
+        log.warn("Tất cả các model Google Gemini đều không phản hồi thành công.");
         return Optional.empty();
     }
 }

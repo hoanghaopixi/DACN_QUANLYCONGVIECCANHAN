@@ -535,7 +535,7 @@ public class AiServiceImpl implements AiService {
                     .build();
         }
 
-        // 1. Phân loại Category
+        // 1. Phân loại Category thông minh toàn diện
         String categoryType = "WORK";
         if (lower.contains("học") || lower.contains("hoc")
                 || lower.contains("tiếng anh") || lower.contains("tieng anh")
@@ -553,17 +553,32 @@ public class AiServiceImpl implements AiService {
                 || lower.contains("nhập môn") || lower.contains("nhap mon")
                 || lower.contains("kỹ thuật") || lower.contains("ky thuat")
                 || lower.contains("môn") || lower.contains("mon")
-                || lower.contains("sách") || lower.contains("sach")) {
+                || lower.contains("sách") || lower.contains("sach")
+                || lower.contains("khóa học") || lower.contains("khoa hoc")
+                || lower.contains("workshop") || lower.contains("seminar")) {
             categoryType = "STUDY";
         } else if (lower.contains("tập") || lower.contains("tap")
                 || lower.contains("gym") || lower.contains("chạy bộ") || lower.contains("chay bo")
                 || lower.contains("thể dục") || lower.contains("the duc")
-                || lower.contains("thuốc") || lower.contains("thuoc") || lower.contains("khám") || lower.contains("kham")) {
+                || lower.contains("thể thao") || lower.contains("the thao")
+                || lower.contains("đá bóng") || lower.contains("da bong") || lower.contains("bóng đá") || lower.contains("bong da")
+                || lower.contains("cầu lông") || lower.contains("cau long") || lower.contains("bóng rổ") || lower.contains("bong ro")
+                || lower.contains("bơi") || lower.contains("boi") || lower.contains("yoga") || lower.contains("thiền") || lower.contains("thien")
+                || lower.contains("thuốc") || lower.contains("thuoc") || lower.contains("khám") || lower.contains("kham")
+                || lower.contains("bác sĩ") || lower.contains("bac si") || lower.contains("nha khoa") || lower.contains("tiêm")
+                || lower.contains("ngủ") || lower.contains("ngu") || lower.contains("dinh dưỡng") || lower.contains("sức khỏe") || lower.contains("suc khoe")) {
             categoryType = "HEALTH";
         } else if (lower.contains("chơi") || lower.contains("choi")
+                || lower.contains("ăn") || lower.contains("an") || lower.contains("uống") || lower.contains("uong")
+                || lower.contains("tắm biển") || lower.contains("tam bien") || lower.contains("biển") || lower.contains("bien")
                 || lower.contains("phim") || lower.contains("game")
-                || lower.contains("cà phê") || lower.contains("ca phe") || lower.contains("cafe")
-                || lower.contains("nghỉ") || lower.contains("nghi")) {
+                || lower.contains("cà phê") || lower.contains("ca phe") || lower.contains("cafe") || lower.contains("trà sữa") || lower.contains("tra sua")
+                || lower.contains("nghỉ") || lower.contains("nghi") || lower.contains("du lịch") || lower.contains("du lich")
+                || lower.contains("dã ngoại") || lower.contains("da ngoai") || lower.contains("picnic") || lower.contains("camping")
+                || lower.contains("mua sắm") || lower.contains("mua sam") || lower.contains("shopping")
+                || lower.contains("hẹn hò") || lower.contains("hen ho") || lower.contains("tiệc") || lower.contains("tiec")
+                || lower.contains("nhậu") || lower.contains("nhau") || lower.contains("liên hoan") || lower.contains("lien hoan")
+                || lower.contains("hát") || lower.contains("karaoke") || lower.contains("dạo") || lower.contains("dao phố") || lower.contains("hóng gió")) {
             categoryType = "ENTERTAINMENT";
         }
 
