@@ -721,71 +721,71 @@ export default function WeeklyCalendar({
   const getCategoryStyles = (categoryType: string, colorOverride?: string) => {
     if (colorOverride === '#3B82F6') {
       return {
-        borderLeft: '3px solid #3B82F6',
+        borderLeft: '3px solid #2563EB',
         backgroundColor: '#EFF6FF',
-        titleColor: '#1E40AF',
-        timeColor: '#3B82F6',
+        titleColor: '#0F3A8A',
+        timeColor: '#1D4ED8',
       };
     }
     if (colorOverride === '#8B5CF6') {
       return {
-        borderLeft: '3px solid #8B5CF6',
-        backgroundColor: '#F3E8FF',
-        titleColor: '#5B21B6',
-        timeColor: '#7C3AED',
+        borderLeft: '3px solid #7C3AED',
+        backgroundColor: '#F5EEFF',
+        titleColor: '#43148B',
+        timeColor: '#6D28D9',
       };
     }
     if (colorOverride === '#10B981') {
       return {
-        borderLeft: '3px solid #10B981',
+        borderLeft: '3px solid #059669',
         backgroundColor: '#ECFDF5',
-        titleColor: '#065F46',
-        timeColor: '#059669',
+        titleColor: '#044A36',
+        timeColor: '#047857',
       };
     }
     if (colorOverride === '#F59E0B') {
       return {
-        borderLeft: '3px solid #F59E0B',
+        borderLeft: '3px solid #D97706',
         backgroundColor: '#FFFBEB',
-        titleColor: '#92400E',
-        timeColor: '#D97706',
+        titleColor: '#78350F',
+        timeColor: '#B45309',
       };
     }
     switch (categoryType) {
       case 'STUDY':
         return {
-          borderLeft: '3px solid #3B82F6',
+          borderLeft: '3px solid #2563EB',
           backgroundColor: '#EFF6FF',
-          titleColor: '#1E40AF',
-          timeColor: '#3B82F6',
+          titleColor: '#0F3A8A',
+          timeColor: '#1D4ED8',
         };
       case 'WORK':
         return {
-          borderLeft: '3px solid #8B5CF6',
-          backgroundColor: '#F3E8FF',
-          titleColor: '#5B21B6',
-          timeColor: '#7C3AED',
+          borderLeft: '3px solid #7C3AED',
+          backgroundColor: '#F5EEFF',
+          titleColor: '#43148B',
+          timeColor: '#6D28D9',
         };
       case 'HEALTH':
         return {
-          borderLeft: '3px solid #10B981',
+          borderLeft: '3px solid #059669',
           backgroundColor: '#ECFDF5',
-          titleColor: '#065F46',
-          timeColor: '#059669',
+          titleColor: '#044A36',
+          timeColor: '#047857',
         };
       case 'ENTERTAINMENT':
         return {
-          borderLeft: '3px solid #F59E0B',
+          borderLeft: '3px solid #D97706',
           backgroundColor: '#FFFBEB',
-          titleColor: '#92400E',
-          timeColor: '#D97706',
+          titleColor: '#78350F',
+          timeColor: '#B45309',
         };
       default:
         return {
-          borderLeft: '3px solid #6C5CE7',
-          backgroundColor: '#F0EDFF',
-          titleColor: '#5A4BD1',
-          timeColor: '#6C5CE7',
+          borderLeft: '3px solid #4F46E5',
+          backgroundColor: '#EEF2FF',
+          titleColor: '#312E81',
+          timeColor: '#4338CA',
         };
     }
   };
@@ -1015,6 +1015,48 @@ export default function WeeklyCalendar({
                     let calculatedRight: string | undefined = 'auto';
                     let calculatedWidth = 'calc(100% - 6px)';
                     let calculatedTransform = 'none';
+
+                    // Tính toán hướng mở linh động cho Quick Duplicate Popover (Nhân bản lịch trình):
+                    // - Nửa phải của tuần (T5, T6, T7, CN): Mở sang TRÁI (right: calc(100% + 8px)) để không tràn ra ngoài calendar
+                    // - Nửa trái của tuần (T2, T3, T4): Mở sang PHẢI (left: calc(100% + 8px))
+                    // - View 1 ngày đơn: Căn lề trong thẻ (right: 8px) và nở lên trên / xuống dưới
+                    const isSingleDayView = DAYS.length === 1;
+                    const isFlyoutOpensLeft = !isSingleDayView && (dayIndex >= 3 || (dayIndex === 2 && colIndex > 0));
+                    const isFlyoutNearBottom = isNearBottom || top > 900;
+
+                    const duplicateFlyoutStyle: React.CSSProperties = {
+                      position: 'absolute',
+                      width: 280,
+                      zIndex: 99999,
+                      background: 'var(--surface, #FFFFFF)',
+                      borderRadius: 14,
+                      border: '1.5px solid #FCD34D',
+                      boxShadow: '0 16px 36px -6px rgba(217, 119, 6, 0.35), 0 4px 16px rgba(0,0,0,0.18)',
+                      padding: '10px 10px 8px',
+                      boxSizing: 'border-box',
+                      cursor: 'default',
+                    };
+
+                    if (isSingleDayView) {
+                      if (totalCols > 1) {
+                        const isColRight = colIndex >= totalCols / 2;
+                        duplicateFlyoutStyle[isColRight ? 'right' : 'left'] = 'calc(100% + 8px)';
+                        if (isFlyoutNearBottom) duplicateFlyoutStyle.bottom = 0;
+                        else duplicateFlyoutStyle.top = 0;
+                      } else {
+                        duplicateFlyoutStyle.right = 8;
+                        if (isFlyoutNearBottom) duplicateFlyoutStyle.bottom = 'calc(100% + 8px)';
+                        else duplicateFlyoutStyle.top = 'calc(100% + 8px)';
+                      }
+                    } else {
+                      if (isFlyoutOpensLeft) {
+                        duplicateFlyoutStyle.right = 'calc(100% + 8px)';
+                      } else {
+                        duplicateFlyoutStyle.left = 'calc(100% + 8px)';
+                      }
+                      if (isFlyoutNearBottom) duplicateFlyoutStyle.bottom = 0;
+                      else duplicateFlyoutStyle.top = 0;
+                    }
 
                     if (isHovered && !isLockedSchedule) {
                       if (isNearBottom) {
@@ -1456,7 +1498,6 @@ export default function WeeklyCalendar({
                         {block.note && block.note.trim() ? (
                           <div
                             className={`event-note ${height < 90 ? 'hover-only-note' : ''}`}
-                            style={{ color: styles.timeColor }}
                             title={block.note}
                           >
                             <span style={{ fontStyle: 'normal', marginRight: 3 }}>💬</span>
@@ -1582,28 +1623,13 @@ export default function WeeklyCalendar({
                         {/* 6. Quick Duplicate Flyout Popover (Cấu hình riêng từng Thứ & Phân loại công việc) */}
                         {duplicateBlockId === block.id && (
                           <div
-                            className="duplicate-popover-flyout"
+                            className={`duplicate-popover-flyout ${isFlyoutOpensLeft ? 'opens-left' : 'opens-right'}`}
                             onClick={(e) => e.stopPropagation()}
                             onMouseDown={(e) => e.stopPropagation()}
                             style={{
-                              position: 'absolute',
-                              ...(DAYS.length === 1
-                                ? (isNearBottom || top > 1050
-                                    ? { bottom: 'calc(100% + 6px)', left: 0 }
-                                    : { top: 'calc(100% + 6px)', left: 0 })
-                                : dayIndex >= DAYS.length - 2
-                                ? { right: 'calc(100% + 6px)', ...(isNearBottom || top > 1050 ? { bottom: 0 } : { top: 0 }) }
-                                : { left: 'calc(100% + 6px)', ...(isNearBottom || top > 1050 ? { bottom: 0 } : { top: 0 }) }),
-                              width: 272,
-                              zIndex: 99999,
-                              background: 'var(--surface)',
-                              borderRadius: 14,
-                              border: '1.5px solid #FCD34D',
-                              boxShadow: '0 16px 36px -6px rgba(217, 119, 6, 0.35), 0 4px 16px rgba(0,0,0,0.18)',
-                              padding: '10px 10px 8px',
+                              ...duplicateFlyoutStyle,
                               animation: `${isClosingDuplicate ? 'popoverFadeOut' : 'popoverFadeIn'} 0.16s cubic-bezier(0.16, 1, 0.3, 1) forwards`,
                               pointerEvents: isClosingDuplicate ? 'none' : 'auto',
-                              cursor: 'default',
                             }}
                           >
                             {/* Popover Header */}
